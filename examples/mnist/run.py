@@ -29,7 +29,7 @@ def get_one_hot(targets, nb_classes):
 
 
 def prepare_dataset(data_dir):
-    url = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
+    url = "https://raw.githubusercontent.com/mnielsen/neural-networks-and-deep-learning/master/data/mnist.pkl.gz"
     save_path = os.path.join(data_dir, url.split("/")[-1])
     print("Preparing MNIST dataset ...")
     try:
