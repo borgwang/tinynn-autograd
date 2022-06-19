@@ -15,18 +15,17 @@ y = Tensor(np.random.normal(0, 1, (bs, odim)), requires_grad=True, dtype=np.floa
 
 params = {
     "w": Tensor(np.random.normal(0, 1.0, (hdim, odim)), requires_grad=True).gpu(),
-    "b": Tensor(np.random.normal(0, 1.0, (odim,)), requires_grad=True).gpu()
 }
 
 learing_rate = 3e-4
 loss_list = []
-for e in range(1000):
+for e in range(200):
     # set gradient to zero
     for param in params.values():
         param.zero_grad()
 
     # forward
-    pred = x @ params["w"] * params["b"]
+    pred = x @ params["w"]
     err = pred - y
     loss = (err * err).sum()
 
@@ -38,5 +37,5 @@ for e in range(1000):
         param -= learing_rate * param.grad
 
     loss_list.append(loss.values)
-    if e % 1 == 0:
+    if e % 10 == 0:
         print("epoch-%i \tloss: %.4f" % (e, float(loss.values.get())))
