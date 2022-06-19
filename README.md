@@ -24,6 +24,18 @@ python3 examples/mnist/run.py
 - [tinynn](https://github.com/borgwang/tinynn)
 
 
+### TODOs
+
+- llops
+  - handle pyopencl array broadcasting
+  - sum along specify asix
+  - implement general transpose op and other movement ops
+  - faster matmul
+- mlops
+  - layers/loss/optimizer
+- misc
+  - create gpu tensor directly
+
 ### License
 
 MIT

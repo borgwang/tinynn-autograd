@@ -42,6 +42,7 @@ def build_unary_ops_tensor(ts, grad_fn, values):
 
 
 def add_(ts1, ts2):
+    # TODO: handle broadcast
     values = ts1.values + ts2.values
     # c = a + b
     # D_c / D_a = 1.0
@@ -284,17 +285,16 @@ def log_(ts):
 def sum_(ts, axis):
     from core.tensor import QUEUE
     #values = ts.values.sum(axis=axis)
+    # TODO: handle sum along axis
     values = cl_array.sum(ts.values)
     if axis is not None:
         repeat = ts.values.shape[axis]
 
     def grad_fn(grad):
         if axis is None:
-            #grad_values = grad.values * (ts.values * 0 + 1.0)
             grad_values = grad.values * cl_array.to_device(QUEUE, np.ones(ts.shape, dtype=np.float32))
             grad = grad.__class__(grad_values, gpu=True)
         else:
-            # TODO: fix this
             grad = np.expand_dims(grad, axis)
             grad = np.repeat(grad, repeat, axis)
         return grad
