@@ -14,48 +14,7 @@ def cl_build(name, program):
     return lambda *args: cl_kernel(QUEUE, *args)
 
 
-def unary_op(name, a, shape):
-    from core.tensor import QUEUE
-    ret = cl_array.empty(QUEUE, a.shape, dtype=np.float32)
-    op_mapping = {
-        "neg": "-a",
-    }
-    code = op_mapping[name]
-    unary_op = cl_build("unary_op", """
-    __kernel void unary_op(
-        __global const float4 *a_g, __global float4 *res_g) {
-      int gid = get_global_id(0);
-      float4 a = a_g[gid];
-      res_g[gid] = """ + code + """;
-    }
-    """)
-    unary_op(shape, None, a.data, ret.data)
-    return ret
-
-
-def binary_op(name, a, b, shape):
-    from core.tensor import QUEUE
-    ret = cl_array.empty(QUEUE, a.shape, dtype=np.float32)
-    op_mapping = {
-        "add": "a+b",
-        "sub": "a-b",
-        "div": "a/b",
-        "mul": "a*b",
-        "pow": "power(a,b)"
-    }
-    binary_op = cl_build("binary_op", """
-    __kernel void binary_op(
-        __global const float4 *a_g, __global const float4 *b_g, __global float4 *res_g) {
-      int gid = get_global_id(0);
-      float4 a = a_g[gid], b = b_g[gid];
-      res_g[gid] = """ + op_mapping[name] + """;
-    }
-    """)
-    binary_op(shape, None, a.data, b.data, ret.data)
-    return ret
-
 def as_tensor(obj):
-    # avoid looping import
     from core.tensor import as_tensor
     return as_tensor(obj)
 
@@ -83,7 +42,6 @@ def build_unary_ops_tensor(ts, grad_fn, values):
 
 
 def add_(ts1, ts2):
-    #values = binary_op("add", ts1.values, ts2.values, ts1.shape)
     values = ts1.values + ts2.values
     # c = a + b
     # D_c / D_a = 1.0
@@ -103,21 +61,16 @@ def sub_(ts1, ts2):
 
 
 def mul_(ts1, ts2):
-    values = binary_op("mul", ts1.values, ts2.values, ts1.shape)
+    values = ts1.values * ts2.values
 
     # c = a * b
     # D_c / D_a = b
     # D_c / D_b = a
     def grad_fn_ts1(grad):
-        grad_values = binary_op("mul", grad.values, ts2.values, grad.shape)
-        grad = grad.__class__(grad_values, shape=grad.shape, gpu=True)
-        return grad
+        return grad.__class__(grad.values * ts2.values, gpu=True)
 
     def grad_fn_ts2(grad):
-        #grad = grad * ts1.values
-        grad_values = binary_op("mul", grad.values, ts1.values, grad.shape)
-        grad = grad.__class__(grad_values, shape=grad.shape, gpu=True)
-        return grad
+        return grad.__class__(grad.values * ts1.values, gpu=True)
 
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
@@ -151,6 +104,7 @@ def div_(ts1, ts2):
 
 
 def pow_(ts1, ts2):
+    print("pow op")
     values = ts1.values ** ts2.values
 
     # c = a ** b
@@ -179,17 +133,17 @@ def pow_(ts1, ts2):
         ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
 
-def dot_(ts1, ts2):
-    #values = ts1.values @ ts2.values
-    from core.tensor import CTX, QUEUE
-    shape = tuple(list(ts1.shape)[:-1] + list(ts2.shape)[1:])
+def matmul_op(a1, a2):
+    from core.tensor import QUEUE
+    shape = tuple(list(a1.shape)[:-1] + list(a2.shape)[1:])
     values = cl_array.empty(QUEUE, shape, dtype=np.float32)
-    # TODO: make it faster (https://cnugteren.github.io/tutorial/pages/page3.html)
-    op = cl_build("dot_op", """
-    __kernel void dot_op(const int N, const int K,
+    ## TODO: make it faster (https://cnugteren.github.io/tutorial/pages/page3.html)
+    op = cl_build("matmul_op", """
+    __kernel void matmul_op(const int N, const int K,
         __global const float *A, __global const float *B, __global float *C) {
       const int gRow = get_global_id(0);  // range 0..M
       const int gCol = get_global_id(1);  // range 0..N
+      // printf("%d, %d\\n", gRow, gCol);
       float acc = 0.0f;
       for (int k=0; k<K; k++) {
         acc += A[gRow*K + k] * B[k*N + gCol];
@@ -197,17 +151,46 @@ def dot_(ts1, ts2):
       C[gRow*N + gCol] = acc;
     }
     """)
-    N, K = np.int32(ts2.shape[-1]), np.int32(ts1.shape[-1])
-    op(shape, None, N, K, ts1.values.data, ts2.values.data, values.data)
+    N, K = np.int32(a2.shape[-1]), np.int32(a1.shape[-1])
+    op(shape, None, N, K, a1.data, a2.data, values.data)
+    return values
+
+
+def contiguous_transpose_op(ts):
+    # NOTE: input is a tensor because we need the shape attribute from tensor instance.
+    from core.tensor import QUEUE
+    assert ts.values.flags.c_contiguous, "Array must be contiguous before transpose_op!"
+    length = np.prod(ts.values.shape)
+    values = cl_array.empty(QUEUE, (length,), dtype=np.float32)
+    op = cl_build("transpose_op", """
+    __kernel void transpose_op(const int M, const int N,
+        __global const float *A, __global float *B) {
+      const int i = get_global_id(0);
+      B[i] = A[(i % M) * N + i / M];
+    }
+    """)
+    # TODO: support 3D/4D transpose
+    M, N = np.int32(ts.values.shape[0]), np.int32(ts.values.shape[1])
+    op((length,), None, M, N, ts.values.data, values.data)
+    return values.reshape((N, M))
+
+
+def matmul_(ts1, ts2):
+    from core.tensor import QUEUE
+    values = matmul_op(ts1.values, ts2.values)
 
     # c = a @ b
     # D_c / D_a = grad @ b.T
     # D_c / D_b = a.T @ grad
     def grad_fn_ts1(grad):
-        return grad @ ts2.values.T
+        #return grad @ ts2.values.T
+        grad_values = matmul_op(grad.values, contiguous_transpose_op(ts2))
+        return grad.__class__(grad_values, gpu=True)
 
     def grad_fn_ts2(grad):
-        return ts1.values.T @ grad
+        #return ts1.values.T @ grad
+        grad_values = matmul_op(contiguous_transpose_op(ts1), grad.values)
+        return grad.__class__(grad_values, gpu=True)
 
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
@@ -299,14 +282,19 @@ def log_(ts):
 
 
 def sum_(ts, axis):
-    values = ts.values.sum(axis=axis)
+    from core.tensor import QUEUE
+    #values = ts.values.sum(axis=axis)
+    values = cl_array.sum(ts.values)
     if axis is not None:
         repeat = ts.values.shape[axis]
 
     def grad_fn(grad):
         if axis is None:
-            grad = grad * np.ones_like(ts.values)
+            #grad_values = grad.values * (ts.values * 0 + 1.0)
+            grad_values = grad.values * cl_array.to_device(QUEUE, np.ones(ts.shape, dtype=np.float32))
+            grad = grad.__class__(grad_values, gpu=True)
         else:
+            # TODO: fix this
             grad = np.expand_dims(grad, axis)
             grad = np.repeat(grad, repeat, axis)
         return grad
@@ -340,13 +328,10 @@ def getitem_(ts, key):
 
 
 def neg_(ts):
-    #values = unary_op("neg", ts.values, ts.shape)
     values = -ts.values
 
     def grad_fn(grad):
-        grad_values = unary_op("neg", grad.values, grad.shape)
-        grad = grad.__class__(grad_values, shape=grad.shape, gpu=True)
-        return grad
+        return -grad
 
     return build_unary_ops_tensor(ts, grad_fn, values)
 

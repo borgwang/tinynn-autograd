@@ -29,11 +29,12 @@ class Tensor(object):
                  dependency=None,
                  dtype=np.float32,
                  gpu=False):
+        # TODO: create gpu tensor directly
         if gpu:
             self._values = values
         else:
             self._values = np.asarray(values, dtype=dtype)
-        self._shape = values.shape
+        self._shape = self._values.shape
         self._gpu = gpu
 
         self.grad = None
@@ -102,10 +103,7 @@ class Tensor(object):
         return ops.add_(as_tensor(other), self)
 
     def __iadd__(self, other):
-        if self._gpu:
-            self.values = ops.binary_op("add", self.values, as_tensor(other).values, self.shape)
-        else:
-            self.values = self.values + as_tensor(other).values
+        self.values = self.values + as_tensor(other).values
         return self
 
     def __sub__(self, other):
@@ -155,10 +153,10 @@ class Tensor(object):
         return self
 
     def __matmul__(self, other):
-        return ops.dot_(self, as_tensor(other))
+        return ops.matmul_(self, as_tensor(other))
 
     def __rmatmul__(self, other):
-        return ops.dot_(as_tensor(other), self)
+        return ops.matmul_(as_tensor(other), self)
 
     def __imatmul__(self, other):
         self.values = self.values @ as_tensor(other).values
@@ -188,24 +186,24 @@ class Tensor(object):
     def flatten(self):
         return ops.flatten_(self)
 
-    def clip(self, min=None, max=None):
-        return ops.clip_(self, min, max)
+    def clip(self, min_=None, max_=None):
+        return ops.clip_(self, min_, max_)
 
     @property
     def T(self):
         return ops.transpose_(self, axes=None)
 
     def backward(self, grad=None):
+        # asd
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         if grad is None:
             grad = np.ones(self.shape, dtype=np.float32)
             if self._gpu:
                 grad = Tensor(grad, requires_grad=False).gpu()
-        print(self._values, self._gpu)
 
-        # accumulate gradient
+        # accumulate the gradients
         self.grad += grad
-        # propagate the gradient to its dependencies
+        # propagate the gradients to its dependencies
         for dep in self.dependency:
             grad_for_dep = dep["grad_fn"](grad)
             dep["tensor"].backward(grad_for_dep)
