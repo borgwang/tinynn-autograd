@@ -59,16 +59,11 @@ def main(args):
     net = Net([
         Dense(200),
         ReLU(),
-        Dense(100),
-        ReLU(),
-        Dense(70),
-        ReLU(),
-        Dense(30),
-        ReLU(),
         Dense(10)
     ])
 
     model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=Adam(lr=args.lr))
+    model = model.gpu()
     loss_layer = SoftmaxCrossEntropyLoss()
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()

@@ -5,6 +5,8 @@ __pycache__/
 *$py.class
 .idea/
 .pytest_cache
+*.lprof
+*.swp
 
 # C extensions
 *.so
@@ -88,11 +90,13 @@ ENV/
 # mypy cache
 .mypy_cache/
 
-# Costomize
+# vscode
+.vscode
+
+# Customize
 core/__pycache__/
 examples/mnist/data/*
 examples/nn_paint/data/*
 examples/binary_classification/data/*
 examples/mnist/compare_tf.py
 
-*.lprof
