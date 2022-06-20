@@ -46,7 +46,6 @@ class Tensor(object):
         if self.dependency is None:
             self.dependency = []
 
-
     def gpu(self):
         if not self._gpu:
             return Tensor(values=cl_array.to_device(QUEUE, self._values),
@@ -194,12 +193,13 @@ class Tensor(object):
         return ops.transpose_(self, axes=None)
 
     def backward(self, grad=None):
-        # asd
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         if grad is None:
-            grad = np.ones(self.shape, dtype=np.float32)
             if self._gpu:
-                grad = Tensor(grad, requires_grad=False).gpu()
+                ones_array = cl_array.zeros(QUEUE, self.shape, dtype=np.float32) + 1.0
+                grad = Tensor(ones_array, gpu=True)
+            else:
+                grad = np.ones(self.shape, dtype=np.float32)
 
         # accumulate the gradients
         self.grad += grad
@@ -209,6 +209,9 @@ class Tensor(object):
             dep["tensor"].backward(grad_for_dep)
 
     def zero_grad(self):
-        zeros = np.zeros(self.shape)
-        self.grad = Tensor(zeros, requires_grad=False).gpu() if self._gpu else zeros
+        if self._gpu:
+            zeros_array = cl_array.zeros(QUEUE, self.shape, dtype=np.float32)
+            self.grad = Tensor(zeros_array, gpu=True)
+        else:
+            self.grad = np.zeros(self.shape, dtype=np.float32)
 

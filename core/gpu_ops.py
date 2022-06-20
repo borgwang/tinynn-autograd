@@ -135,25 +135,56 @@ def pow_(ts1, ts2):
 
 
 def matmul_op(a1, a2):
+    TS = 16
+    matmul_kernel = """
+    #define TS """ + str(TS) + """
+
+    __kernel void matmul_op_v1(const int M, const int N, const int K,
+        __global const float *A, __global const float *B, __global float *C) {
+      const int m = get_global_id(0);
+      const int n = get_global_id(1);
+      // printf("%d, %d\\n", m, n);
+      float acc = 0.0f;
+      for (int k=0; k<K; k++) {
+        acc += A[m*K + k] * B[k*N + n];
+      }
+      C[m * N + n] = acc;
+    }
+
+    __kernel void matmul_op_v2(const int M, const int N, const int K,
+        __global const float *A, __global const float *B, __global float *C) {
+      const int row = get_local_id(0);
+      const int col = get_local_id(1);
+      const int m = TS * get_group_id(0) + row;
+      const int n = TS * get_group_id(1) + col;
+
+      __local float Alocal[TS][TS];
+      __local float Blocal[TS][TS];
+
+      float acc = 0.0f;
+      const int nTiles = K / TS;
+      for (int t=0; t<nTiles; t++) {
+        Alocal[row][col] = A[m * K + (TS * t + col)];
+        Blocal[row][col] = B[(TS * t + row) * N + n];
+
+        barrier(CLK_LOCAL_MEM_FENCE);
+
+        for (int k=0; k<TS; k++) {
+          acc += Alocal[row][k] * Blocal[k][col];
+        }
+
+        barrier(CLK_LOCAL_MEM_FENCE);
+      }
+      C[m * N + n] = acc;
+    }
+    """
     from core.tensor import QUEUE
     shape = tuple(list(a1.shape)[:-1] + list(a2.shape)[1:])
     values = cl_array.empty(QUEUE, shape, dtype=np.float32)
     ## TODO: make it faster (https://cnugteren.github.io/tutorial/pages/page3.html)
-    op = cl_build("matmul_op", """
-    __kernel void matmul_op(const int N, const int K,
-        __global const float *A, __global const float *B, __global float *C) {
-      const int gRow = get_global_id(0);  // range 0..M
-      const int gCol = get_global_id(1);  // range 0..N
-      // printf("%d, %d\\n", gRow, gCol);
-      float acc = 0.0f;
-      for (int k=0; k<K; k++) {
-        acc += A[gRow*K + k] * B[k*N + gCol];
-      }
-      C[gRow*N + gCol] = acc;
-    }
-    """)
-    N, K = np.int32(a2.shape[-1]), np.int32(a1.shape[-1])
-    op(shape, None, N, K, a1.data, a2.data, values.data)
+    op = cl_build("matmul_op_v1", matmul_kernel)
+    M, N, K = np.int32(a1.shape[0]), np.int32(a2.shape[-1]), np.int32(a1.shape[-1])
+    op(shape, (TS, TS), M, N, K, a1.data, a2.data, values.data)
     return values
 
 
