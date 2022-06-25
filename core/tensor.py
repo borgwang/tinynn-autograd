@@ -17,7 +17,7 @@ QUEUE = cl.CommandQueue(CTX)
 
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
-        obj = Tensor(obj)
+        obj = Tensor(obj, gpu=isinstance(obj, cl_array.Array))
     return obj
 
 
@@ -196,8 +196,7 @@ class Tensor(object):
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         if grad is None:
             if self._gpu:
-                ones_array = cl_array.zeros(QUEUE, self.shape, dtype=np.float32) + 1.0
-                grad = Tensor(ones_array, gpu=True)
+                grad = cl_array.zeros(QUEUE, self.shape, dtype=np.float32) + 1.0
             else:
                 grad = np.ones(self.shape, dtype=np.float32)
 
@@ -210,8 +209,7 @@ class Tensor(object):
 
     def zero_grad(self):
         if self._gpu:
-            zeros_array = cl_array.zeros(QUEUE, self.shape, dtype=np.float32)
-            self.grad = Tensor(zeros_array, gpu=True)
+            self.grad = cl_array.zeros(QUEUE, self.shape, dtype=np.float32)
         else:
             self.grad = np.zeros(self.shape, dtype=np.float32)
 

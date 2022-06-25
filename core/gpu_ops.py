@@ -68,10 +68,10 @@ def mul_(ts1, ts2):
     # D_c / D_a = b
     # D_c / D_b = a
     def grad_fn_ts1(grad):
-        return grad.__class__(grad.values * ts2.values, gpu=True)
+        return grad * ts2.values
 
     def grad_fn_ts2(grad):
-        return grad.__class__(grad.values * ts1.values, gpu=True)
+        return grad * ts1.values
 
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
@@ -105,23 +105,16 @@ def div_(ts1, ts2):
 
 
 def pow_(ts1, ts2):
-    print("pow op")
     values = ts1.values ** ts2.values
 
     # c = a ** b
     # D_c / D_a = b * a ** (b-1)
     # D_c / D_b = ln(a) * a ** b
     def grad_fn_ts1(grad):
-        grad = grad * ts2.values * ts1.values ** (ts2.values - 1)
-        for _ in range(grad.ndim - ts1.values.ndim):
-            grad = grad.sum(axis=0)
-
-        for i, dim in enumerate(ts1.shape):
-            if dim == 1:
-                grad = grad.sum(axis=i, keepdims=True)
-        return grad
+        return grad * (ts2.values * ts1.values ** (ts2.values - np.ones((), dtype=np.float32)))
 
     def grad_fn_ts2(grad):
+        # TODO
         grad = grad * (np.log(ts1.values) * values)
         for _ in range(grad.ndim - ts2.values.ndim):
             grad = grad.sum(axis=0)
@@ -132,60 +125,6 @@ def pow_(ts1, ts2):
 
     return build_binary_ops_tensor(
         ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
-
-
-def matmul_op(a1, a2):
-    TS = 16
-    matmul_kernel = """
-    #define TS """ + str(TS) + """
-
-    __kernel void matmul_op_v1(const int M, const int N, const int K,
-        __global const float *A, __global const float *B, __global float *C) {
-      const int m = get_global_id(0);
-      const int n = get_global_id(1);
-      // printf("%d, %d\\n", m, n);
-      float acc = 0.0f;
-      for (int k=0; k<K; k++) {
-        acc += A[m*K + k] * B[k*N + n];
-      }
-      C[m * N + n] = acc;
-    }
-
-    __kernel void matmul_op_v2(const int M, const int N, const int K,
-        __global const float *A, __global const float *B, __global float *C) {
-      const int row = get_local_id(0);
-      const int col = get_local_id(1);
-      const int m = TS * get_group_id(0) + row;
-      const int n = TS * get_group_id(1) + col;
-
-      __local float Alocal[TS][TS];
-      __local float Blocal[TS][TS];
-
-      float acc = 0.0f;
-      const int nTiles = K / TS;
-      for (int t=0; t<nTiles; t++) {
-        Alocal[row][col] = A[m * K + (TS * t + col)];
-        Blocal[row][col] = B[(TS * t + row) * N + n];
-
-        barrier(CLK_LOCAL_MEM_FENCE);
-
-        for (int k=0; k<TS; k++) {
-          acc += Alocal[row][k] * Blocal[k][col];
-        }
-
-        barrier(CLK_LOCAL_MEM_FENCE);
-      }
-      C[m * N + n] = acc;
-    }
-    """
-    from core.tensor import QUEUE
-    shape = tuple(list(a1.shape)[:-1] + list(a2.shape)[1:])
-    values = cl_array.empty(QUEUE, shape, dtype=np.float32)
-    ## TODO: make it faster (https://cnugteren.github.io/tutorial/pages/page3.html)
-    op = cl_build("matmul_op_v1", matmul_kernel)
-    M, N, K = np.int32(a1.shape[0]), np.int32(a2.shape[-1]), np.int32(a1.shape[-1])
-    op(shape, (TS, TS), M, N, K, a1.data, a2.data, values.data)
-    return values
 
 
 def contiguous_transpose_op(ts):
@@ -207,22 +146,51 @@ def contiguous_transpose_op(ts):
     return values.reshape((N, M))
 
 
+def matmul_op(a1, a2):
+    assert all([(a1.flags.c_contiguous or a1.flags.f_contiguous) and \
+            (a2.flags.c_contiguous or a2.flags.f_contiguous)])
+    matmul_kernel = """
+    __kernel void matmul_op(const int M, const int N, const int K,
+        const int A_c_conus, const int B_c_conus,
+        __global const float *A, __global const float *B, __global float *C) {
+      const int m = get_global_id(0);
+      const int n = get_global_id(1);
+      float acc = 0.0f;
+      int A_idx, B_idx;
+      for (int k=0; k<K; k++) {
+        //acc += A[m*K + k] * B[k*N + n];
+        A_idx = A_c_conus ? m*K + k : k*M + m;
+        B_idx = B_c_conus ? k*N + n : n*K + k;
+        acc += A[A_idx] * B[B_idx];
+      }
+      C[m * N + n] = acc;
+    }
+    """
+    from core.tensor import QUEUE
+    shape = tuple(list(a1.shape)[:-1] + list(a2.shape)[1:])
+    values = cl_array.empty(QUEUE, shape, dtype=np.float32)
+    # TODO: faster matmul (https://cnugteren.github.io/tutorial/pages/page3.html)
+    op = cl_build("matmul_op", matmul_kernel)
+    M, K, N = np.int32(a1.shape[0]), np.int32(a1.shape[-1]), np.int32(a2.shape[-1])
+    op(shape, None, M, N, K, np.int32(a1.flags.c_contiguous), np.int32(a2.flags.c_contiguous),
+            a1.data, a2.data, values.data)
+    return values
+
+
 def matmul_(ts1, ts2):
     from core.tensor import QUEUE
+    assert ts1.shape[-1] == ts2.shape[0]
     values = matmul_op(ts1.values, ts2.values)
-
     # c = a @ b
     # D_c / D_a = grad @ b.T
     # D_c / D_b = a.T @ grad
     def grad_fn_ts1(grad):
         #return grad @ ts2.values.T
-        grad_values = matmul_op(grad.values, contiguous_transpose_op(ts2))
-        return grad.__class__(grad_values, gpu=True)
+        return matmul_op(grad, ts2.values.T)
 
     def grad_fn_ts2(grad):
         #return ts1.values.T @ grad
-        grad_values = matmul_op(contiguous_transpose_op(ts1), grad.values)
-        return grad.__class__(grad_values, gpu=True)
+        return matmul_op(ts1.values.T, grad)
 
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
@@ -313,6 +281,7 @@ def log_(ts):
     return build_unary_ops_tensor(ts, grad_fn, values)
 
 
+#@profile
 def sum_(ts, axis):
     from core.tensor import QUEUE
     #values = ts.values.sum(axis=axis)
@@ -323,8 +292,7 @@ def sum_(ts, axis):
 
     def grad_fn(grad):
         if axis is None:
-            grad_values = grad.values * cl_array.to_device(QUEUE, np.ones(ts.shape, dtype=np.float32))
-            grad = grad.__class__(grad_values, gpu=True)
+            return grad * cl_array.zeros(QUEUE, ts.shape, dtype=np.float32) + 1.0
         else:
             grad = np.expand_dims(grad, axis)
             grad = np.repeat(grad, repeat, axis)
