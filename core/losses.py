@@ -1,5 +1,3 @@
-"""Loss functions"""
-
 import numpy as np
 
 import core.ops as ops

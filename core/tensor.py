@@ -21,7 +21,22 @@ def as_tensor(obj):
     return obj
 
 
-class Tensor(object):
+class GPUNdArray:
+
+    def __init__(self, data):
+        self.storage = None
+        self.stride = None
+        self.data = None
+        self.shape = data.shape
+
+    def empty
+
+
+class CPUNdArray:
+    pass
+
+
+class Tensor:
 
     def __init__(self,
                  values,
@@ -29,7 +44,6 @@ class Tensor(object):
                  dependency=None,
                  dtype=np.float32,
                  gpu=False):
-        # TODO: create gpu tensor directly
         if gpu:
             self._values = values
         else:
@@ -76,7 +90,7 @@ class Tensor(object):
 
     @property
     def shape(self):
-        return self._shape
+        return self._values.shape
 
     def __repr__(self):
         return (f"Tensor(shape={self.shape}, "

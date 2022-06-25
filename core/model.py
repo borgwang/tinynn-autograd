@@ -1,9 +1,7 @@
-"""Model class manage the network, loss function and optimizer."""
-
 import pickle
 
 
-class Model(object):
+class Model:
 
     def __init__(self, net, loss, optimizer):
         self.net = net

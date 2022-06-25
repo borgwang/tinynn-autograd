@@ -29,8 +29,9 @@ python3 examples/mnist/run.py
 - llops
   - handle pyopencl array broadcasting
   - sum along specify asix
-  - implement general transpose op and other movement ops
-  - faster matmul
+  - [x] contiguous array is still contiguous after transpose
+  - [] implement movement ops
+  - [] buffer instead of array
 - mlops
   - layers/loss/optimizer
 - misc

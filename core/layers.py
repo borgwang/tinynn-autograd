@@ -7,19 +7,28 @@ from core.initializer import XavierUniformInit
 from core.initializer import ZerosInit
 
 
-class Layer(object):
+class Layer:
 
     def __init__(self, name):
         self.name = name
 
         self.params, self.grads = {}, {}
         self.is_training = True
+        self.device = "cpu"
 
     def forward(self, inputs):
         raise NotImplementedError
 
     def set_phase(self, phase):
         self.is_training = True if phase == "TRAIN" else False
+
+    def gpu(self):
+        self.device = "gpu"
+        return self
+
+    def cpu(self):
+        self.device = "cpu"
+        return self
 
 
 class Dense(Layer):
@@ -43,17 +52,16 @@ class Dense(Layer):
     def forward(self, inputs):
         # lazy initialize
         if not self.is_init:
-            self._init_parameters(inputs.shape[1])
+            self._init_parameters(inputs.shape[-1])
 
         self.inputs = inputs
+        import pdb; pdb.set_trace()
         return inputs @ self.params["w"] + self.params["b"]
 
     def _init_parameters(self, input_size):
         self.shapes["w"][0] = input_size
-        self.params["w"] = self.initializers["w"](shape=self.shapes["w"])
-        self.params["w"].zero_grad()
-        self.params["b"] = self.initializers["b"](shape=self.shapes["b"])
-        self.params["b"].zero_grad()
+        self.params["w"] = self.initializers["w"](shape=self.shapes["w"], device=self.device)
+        self.params["b"] = self.initializers["b"](shape=self.shapes["b"], device=self.device)
         self.is_init = True
 
 

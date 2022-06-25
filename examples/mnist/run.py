@@ -60,10 +60,9 @@ def main(args):
         Dense(200),
         ReLU(),
         Dense(10)
-    ])
+    ]).gpu()
 
     model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=Adam(lr=args.lr))
-    model = model.gpu()
     loss_layer = SoftmaxCrossEntropyLoss()
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()
@@ -72,8 +71,11 @@ def main(args):
         t_start = time.time()
         for batch in iterator(train_x, train_y):
             model.zero_grad()
-            pred = model.forward(batch.inputs)
-            loss = loss_layer.loss(pred, batch.targets)
+            x = batch.inputs.gpu()
+            y = batch.targets.gpu()
+            pred = model.forward(x)
+            import pdb; pdb.set_trace()
+            loss = loss_layer.loss(pred, y)
             loss.backward()
             model.step()
             loss_list.append(loss.values)

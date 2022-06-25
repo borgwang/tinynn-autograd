@@ -41,8 +41,31 @@ def build_unary_ops_tensor(ts, grad_fn, values):
     return tensor_cls(values, requires_grad, dependency, gpu=gpu)
 
 
+def expand_op(ts, shape):
+    pass
+
+
+def broadcast(ts1, ts2):
+    if ts1.shape == ts2.shape:
+        return ts1, ts2
+    for i, j in zip(ts1.values.shape, ts2.values.shape):
+        if i != j and (i != 1) and (j != 1):
+            raise ValueError("Error broadcasting for {ts1.values.shape} and {ts2.values.shape}")
+    ndims = max(len(ts1.shape), len(ts2.shape))
+    if len(ts1.shape) != ndims:
+        ts1.values = ts1.values.reshape([1] * (ndims - len(ts1.shape)) + list(ts1.shape))
+    if len(ts2.shape) != ndims:
+        ts2.values = ts2.values.reshape([1] * (ndims - len(ts2.shape)) + list(ts2.shape))
+    broadcast_shape = [max(i, j) for i, j in zip(ts1.shape, ts2.shape)]
+    if ts1.shape != broadcast_shape:
+        ts1 = expand_op(ts1, broadcast_shape)
+    if ts2.shape != broadcast_shape:
+        ts2 = expand_op(ts2, broadcast_shape)
+    return ts1, ts2
+
+
 def add_(ts1, ts2):
-    # TODO: handle broadcast
+    ts1, ts2 = broadcast(ts1, ts2)
     values = ts1.values + ts2.values
     # c = a + b
     # D_c / D_a = 1.0
@@ -336,11 +359,11 @@ def neg_(ts):
 
 
 def reshape_(ts, newshape):
-    shape = ts.values.shape
+    oldshape = ts.values.shape
     values = ts.values.reshape(newshape)
 
     def grad_fn(grad):
-        return grad.reshape(shape)
+        return grad.reshape(oldshape)
 
     return build_unary_ops_tensor(ts, grad_fn, values)
 
@@ -380,8 +403,8 @@ def clip_(ts, min, max):
     return build_unary_ops_tensor(ts, grad_fn, values)
 
 
-def max(obj, axis=None):
-    return max_(as_tensor(obj), axis=axis)
+#def max(obj, axis=None):
+#    return max_(as_tensor(obj), axis=axis)
 
 
 def maximum(obj1, obj2):
@@ -418,4 +441,8 @@ def flatten(obj):
 
 def clip(obj, min=None, max=None):
     return clip_(as_tensor(obj), min, max)
+
+
+def random_normal(loc, scale, size):
+    pass
 

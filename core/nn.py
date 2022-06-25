@@ -1,7 +1,4 @@
-"""Feed-forward Neural Network class."""
-
-
-class Net(object):
+class Net:
 
     def __init__(self, layers):
         self.layers = layers
@@ -29,3 +26,8 @@ class Net(object):
         for layer in self.layers:
             layer.set_phase(phase)
         self._phase = phase
+
+    def gpu(self):
+        for layer in self.layers:
+            layer.gpu()
+        return self
