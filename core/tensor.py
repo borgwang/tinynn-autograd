@@ -1,11 +1,11 @@
 """Tensor wraps numpy ndarray with some stuffs for pytorch-like autograd."""
 
 import os
-from copy import deepcopy
 
 import numpy as np
 #import core.ops as ops
 import core.gpu_ops as ops
+from core.ndarray import GPUArray
 import pyopencl as cl
 import pyopencl.array as cl_array
 
@@ -21,21 +21,6 @@ def as_tensor(obj):
     return obj
 
 
-class GPUNdArray:
-
-    def __init__(self, data):
-        self.storage = None
-        self.stride = None
-        self.data = None
-        self.shape = data.shape
-
-    def empty
-
-
-class CPUNdArray:
-    pass
-
-
 class Tensor:
 
     def __init__(self,
@@ -44,39 +29,31 @@ class Tensor:
                  dependency=None,
                  dtype=np.float32,
                  gpu=False):
-        if gpu:
-            self._values = values
-        else:
-            self._values = np.asarray(values, dtype=dtype)
+        gpu = isinstance(values, GPUArray)
+        self.values = values if gpu else np.asarray(values, dtype)
         self._shape = self._values.shape
         self._gpu = gpu
 
         self.grad = None
         self.requires_grad = requires_grad
-        if self.requires_grad:
-            self.zero_grad()
-
+        #if self.requires_grad:
+        #    self.zero_grad()
         self.dependency = dependency
         if self.dependency is None:
             self.dependency = []
 
     def gpu(self):
         if not self._gpu:
-            return Tensor(values=cl_array.to_device(QUEUE, self._values),
+            return Tensor(values=GPUArray(self._values),
                           requires_grad=self.requires_grad,
                           dependency=self.dependency,
-                          dtype=self._values.dtype,
-                          gpu=True)
+                          dtype=self._values.dtype)
         return self
 
     def cpu(self):
         if self._gpu:
-            return Tensor(values=self._values.get(),
-                          requires_grad=self.requires_grad,
-                          dependency=self.dependency,
-                          dtype=self._values.dtype,
-                          gpu=True)
-        return self
+            return self._values.to_cpu()
+        return self._values
 
     @property
     def values(self):
@@ -116,7 +93,7 @@ class Tensor:
         return ops.add_(as_tensor(other), self)
 
     def __iadd__(self, other):
-        self.values = self.values + as_tensor(other).values
+        self.values += as_tensor(other).values
         return self
 
     def __sub__(self, other):
@@ -136,7 +113,7 @@ class Tensor:
         return ops.mul_(as_tensor(other), self)
 
     def __imul__(self, other):
-        self.values = self.values * as_tensor(other).values
+        self.values *= as_tensor(other).values
         return self
 
     def __truediv__(self, other):
@@ -222,8 +199,10 @@ class Tensor:
             dep["tensor"].backward(grad_for_dep)
 
     def zero_grad(self):
-        if self._gpu:
-            self.grad = cl_array.zeros(QUEUE, self.shape, dtype=np.float32)
+        if self.grad is None:
+            if self._gpu:
+                self.grad = GPUArray.zeros(self.shape, dtype=np.float32)
+            else:
+                self.grad = np.zeros(self.shape, dtype=np.float32)
         else:
-            self.grad = np.zeros(self.shape, dtype=np.float32)
-
+            self.grad *= 0.0

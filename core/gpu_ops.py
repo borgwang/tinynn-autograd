@@ -41,31 +41,7 @@ def build_unary_ops_tensor(ts, grad_fn, values):
     return tensor_cls(values, requires_grad, dependency, gpu=gpu)
 
 
-def expand_op(ts, shape):
-    pass
-
-
-def broadcast(ts1, ts2):
-    if ts1.shape == ts2.shape:
-        return ts1, ts2
-    for i, j in zip(ts1.values.shape, ts2.values.shape):
-        if i != j and (i != 1) and (j != 1):
-            raise ValueError("Error broadcasting for {ts1.values.shape} and {ts2.values.shape}")
-    ndims = max(len(ts1.shape), len(ts2.shape))
-    if len(ts1.shape) != ndims:
-        ts1.values = ts1.values.reshape([1] * (ndims - len(ts1.shape)) + list(ts1.shape))
-    if len(ts2.shape) != ndims:
-        ts2.values = ts2.values.reshape([1] * (ndims - len(ts2.shape)) + list(ts2.shape))
-    broadcast_shape = [max(i, j) for i, j in zip(ts1.shape, ts2.shape)]
-    if ts1.shape != broadcast_shape:
-        ts1 = expand_op(ts1, broadcast_shape)
-    if ts2.shape != broadcast_shape:
-        ts2 = expand_op(ts2, broadcast_shape)
-    return ts1, ts2
-
-
 def add_(ts1, ts2):
-    ts1, ts2 = broadcast(ts1, ts2)
     values = ts1.values + ts2.values
     # c = a + b
     # D_c / D_a = 1.0
@@ -86,16 +62,8 @@ def sub_(ts1, ts2):
 
 def mul_(ts1, ts2):
     values = ts1.values * ts2.values
-
-    # c = a * b
-    # D_c / D_a = b
-    # D_c / D_b = a
-    def grad_fn_ts1(grad):
-        return grad * ts2.values
-
-    def grad_fn_ts2(grad):
-        return grad * ts1.values
-
+    grad_fn_ts1 = lambda g: g * ts2.values
+    grad_fn_ts2 = lambda g: g * ts1.values
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
 
@@ -169,52 +137,14 @@ def contiguous_transpose_op(ts):
     return values.reshape((N, M))
 
 
-def matmul_op(a1, a2):
-    assert all([(a1.flags.c_contiguous or a1.flags.f_contiguous) and \
-            (a2.flags.c_contiguous or a2.flags.f_contiguous)])
-    matmul_kernel = """
-    __kernel void matmul_op(const int M, const int N, const int K,
-        const int A_c_conus, const int B_c_conus,
-        __global const float *A, __global const float *B, __global float *C) {
-      const int m = get_global_id(0);
-      const int n = get_global_id(1);
-      float acc = 0.0f;
-      int A_idx, B_idx;
-      for (int k=0; k<K; k++) {
-        //acc += A[m*K + k] * B[k*N + n];
-        A_idx = A_c_conus ? m*K + k : k*M + m;
-        B_idx = B_c_conus ? k*N + n : n*K + k;
-        acc += A[A_idx] * B[B_idx];
-      }
-      C[m * N + n] = acc;
-    }
-    """
-    from core.tensor import QUEUE
-    shape = tuple(list(a1.shape)[:-1] + list(a2.shape)[1:])
-    values = cl_array.empty(QUEUE, shape, dtype=np.float32)
-    # TODO: faster matmul (https://cnugteren.github.io/tutorial/pages/page3.html)
-    op = cl_build("matmul_op", matmul_kernel)
-    M, K, N = np.int32(a1.shape[0]), np.int32(a1.shape[-1]), np.int32(a2.shape[-1])
-    op(shape, None, M, N, K, np.int32(a1.flags.c_contiguous), np.int32(a2.flags.c_contiguous),
-            a1.data, a2.data, values.data)
-    return values
-
-
 def matmul_(ts1, ts2):
-    from core.tensor import QUEUE
-    assert ts1.shape[-1] == ts2.shape[0]
-    values = matmul_op(ts1.values, ts2.values)
-    # c = a @ b
-    # D_c / D_a = grad @ b.T
-    # D_c / D_b = a.T @ grad
+    values = ts1.values @ ts2.values
     def grad_fn_ts1(grad):
         #return grad @ ts2.values.T
         return matmul_op(grad, ts2.values.T)
-
     def grad_fn_ts2(grad):
         #return ts1.values.T @ grad
         return matmul_op(ts1.values.T, grad)
-
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
 
@@ -297,22 +227,15 @@ def min_(ts, axis=None):
 
 def log_(ts):
     values = np.log(ts.values)
-
     def grad_fn(grad):
         return grad / ts.values
-
     return build_unary_ops_tensor(ts, grad_fn, values)
 
 
-#@profile
 def sum_(ts, axis):
-    from core.tensor import QUEUE
-    #values = ts.values.sum(axis=axis)
-    # TODO: handle sum along axis
-    values = cl_array.sum(ts.values)
+    values = ts.values.sum(axis)
     if axis is not None:
         repeat = ts.values.shape[axis]
-
     def grad_fn(grad):
         if axis is None:
             return grad * cl_array.zeros(QUEUE, ts.shape, dtype=np.float32) + 1.0
@@ -320,21 +243,21 @@ def sum_(ts, axis):
             grad = np.expand_dims(grad, axis)
             grad = np.repeat(grad, repeat, axis)
         return grad
-
     return build_unary_ops_tensor(ts, grad_fn, values)
 
 
 def transpose_(ts, axes=None):
-    values = ts.values.transpose(axes)
+    if axes is None:
+        assert len(ts.values.shape) == 2
+        axes = (1, 0)
 
+    values = ts.values.transpose(axes)
     if axes is None:
         axes = reversed(range(ts.values.ndim))
     axes = list(axes)
-
     # recover to original shape
     def grad_fn(grad):
         return grad.transpose(np.argsort(axes))
-
     return build_unary_ops_tensor(ts, grad_fn, values)
 
 
