@@ -20,14 +20,12 @@ pred = x @ y.T
 print(pred.cpu())
 """
 
-"""
 data_x = np.arange(12).reshape(3, 4).astype(np.float32)
-data_x = np.arange(12).astype(np.float32)
+data_x = np.arange(10).astype(np.float32)
 print(data_x.sum())
 x = Tensor(data_x).gpu()
 print(x.sum().cpu())
 import pdb; pdb.set_trace()
-"""
 
 data_x = np.random.normal(0, 1, (BS, idim)).astype(np.float32)
 data_y = np.random.normal(0, 1, (BS, odim)).astype(np.float32)

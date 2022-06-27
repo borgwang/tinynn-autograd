@@ -7,7 +7,6 @@ import numpy as np
 import core.gpu_ops as ops
 from core.ndarray import GPUArray
 import pyopencl as cl
-import pyopencl.array as cl_array
 
 
 os.environ["PYOPENCL_CTX"] = "0:2"
@@ -17,7 +16,7 @@ QUEUE = cl.CommandQueue(CTX)
 
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
-        obj = Tensor(obj, gpu=isinstance(obj, cl_array.Array))
+        obj = Tensor(obj)
     return obj
 
 
@@ -27,8 +26,7 @@ class Tensor:
                  values,
                  requires_grad=False,
                  dependency=None,
-                 dtype=np.float32,
-                 gpu=False):
+                 dtype=np.float32):
         gpu = isinstance(values, GPUArray)
         self.values = values if gpu else np.asarray(values, dtype)
         self._shape = self._values.shape
@@ -187,7 +185,7 @@ class Tensor:
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         if grad is None:
             if self._gpu:
-                grad = cl_array.zeros(QUEUE, self.shape, dtype=np.float32) + 1.0
+                grad = GPUAarray.ones(self.shape, dtype=np.float32)
             else:
                 grad = np.ones(self.shape, dtype=np.float32)
 

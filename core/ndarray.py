@@ -44,6 +44,12 @@ class GPUArray:
         return arr
 
     @classmethod
+    def ones(cls, shape, dtype=np.float32):
+        arr = cls(shape=shape, dtype=dtype)
+        arr._fill(1.0)
+        return arr
+
+    @classmethod
     def from_cpu(cls, buffer_data):
         return cls(data=buffer_data)
 

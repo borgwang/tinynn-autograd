@@ -27,8 +27,7 @@ def build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values):
     if ts2.requires_grad:
         dependency.append(dict(tensor=ts2, grad_fn=grad_fn_ts2))
     tensor_cls = ts1.__class__
-    gpu = isinstance(values, cl_array.Array)
-    return tensor_cls(values, requires_grad, dependency, gpu=gpu)
+    return tensor_cls(values, requires_grad, dependency)
 
 
 def build_unary_ops_tensor(ts, grad_fn, values):
@@ -37,8 +36,7 @@ def build_unary_ops_tensor(ts, grad_fn, values):
     if ts.requires_grad:
         dependency.append(dict(tensor=ts, grad_fn=grad_fn))
     tensor_cls = ts.__class__
-    gpu = isinstance(values, cl_array.Array)
-    return tensor_cls(values, requires_grad, dependency, gpu=gpu)
+    return tensor_cls(values, requires_grad, dependency)
 
 
 def add_(ts1, ts2):

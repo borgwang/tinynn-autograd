@@ -106,36 +106,43 @@ def matmul_op(a, b, ret=None):
     }
     """
     op = cl_build("matmul_op", src)
-    M = np.prod(list(a.shape)[:-1], dtype=int)
+    M = int(np.prod(list(a.shape)[:-1]))
     K = a.shape[-1]
-    N = np.prod(list(b.shape)[1:], dtype=int)
+    N = int(np.prod(list(b.shape)[1:]))
     op((M, N), None, *[np.int32(a) for a in [M, N, K, a._c_contiguous, b._c_contiguous]],
         a.buffer, b.buffer, ret.buffer)
     return ret
 
 def reduce_op(name, a, ret=None, axis=None, keepdims=True):
-    # TODO: BUGGY reduction
+    # TODO: https://github.com/JimMadge/OpenCL-Reduction-Example/blob/master/reduction/reduction.cl
     ret_shape = ()
     if ret is None:
         ret = a.__class__(shape=ret_shape, dtype=a.dtype)
     op_mapping = {"sum": "", "max": ""}
     op = cl_build("reduce_op", """
     __kernel void reduce_op(
-        __global const float *a_g, __global float *res_g) {
+        __global const float *a, __local float *b, __global float *res_g) {
+      int global_id = get_global_id(0);
       int local_id = get_local_id(0);
       int group_size = get_local_size(0);
-      localSums[local_id] = input[get_global_id(0)];
-      // Loop for computing localSums
-      for (uint stride = group_size/2; stride>0; stride/=2) {
-        // Waiting for each 2x2 addition into given workgroup
-        barrier(CLK_LOCAL_MEM_FENCE);
-        // Divide WorkGroup into 2 parts and add elements 2 by 2
-        // between local_id and local_id + stride
+      int group_id = get_group_id(0);
+      printf("%d, %d, %d, %d \\n", global_id, local_id, group_size, group_id);
+
+      // copy to local
+      b[local_id] = a[global_id];
+      barrier(CLK_LOCAL_MEM_FENCE);
+
+      for (int stride=group_size>>1; stride>0; stride>>=1) {
         if (local_id < stride)
-          localSums[local_id] += localSums[local_id + stride];
+          b[local_id] += b[local_id + stride];
+        barrier(CLK_LOCAL_MEM_FENCE);
       }
+      if (local_id == 0)
+        res_g[group_id] = b[0];
     }
     """)
-    op((M, N), None, a.buffer, ret.buffer)
+    local_mem_size = int(a.dtype().itemsize * np.prod(a.shape))
+    local_mem = cl.LocalMemory(local_mem_size)
+    op((np.prod(a.shape),), None, a.buffer, local_mem, ret.buffer)
     return ret
 

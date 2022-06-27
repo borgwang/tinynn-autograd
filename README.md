@@ -37,6 +37,8 @@ python3 examples/mnist/run.py
 - misc
   - create gpu tensor directly
 
+### Design
+
 ### License
 
 MIT
