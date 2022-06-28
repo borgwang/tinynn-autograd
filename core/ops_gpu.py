@@ -15,6 +15,7 @@ cl_queue = cl.CommandQueue(cl_ctx)
 @lru_cache()
 def cl_build(name, program):
     print(f"miss cache. build {name}")
+    #print(program)
     cl_kernel = cl.Program(cl_ctx, program).build().__getattr__(name)
     return lambda *args: cl_kernel(cl_queue, *args)
 
@@ -114,36 +115,123 @@ def matmul_op(a, b, ret=None):
     return ret
 
 def reduce_op(name, a, ret=None, axis=None, keepdims=True):
-    # TODO: support axis and keepdims
     # TODO: https://github.com/JimMadge/OpenCL-Reduction-Example/blob/master/reduction/reduction.cl
-    group_size = 256
-    n_groups = a.shape[0] // group_size
-    ret_shape = (n_groups,) if n_groups > 1 else ()
+    # 1. axis and keepdims
+    # 2. axis=None
+    # 3. padding
+    # 4. contiguous
+    # 5. 4D tensor reduction
+    # 6. dynamic group_size
+    group_size = 2 ** 8
+    length = np.prod(a.shape) if axis is None else a.shape[axis]
+    n_groups = length // group_size
+    if n_groups <= 1:
+        ret_shape = tuple(d for i, d in enumerate(a.shape) if i != axis)
+    else:
+        ret_shape = tuple(group_size if i == axis else d
+                          for i, d in enumerate(a.shape))
     if ret is None:
         ret = a.__class__(shape=ret_shape, dtype=a.dtype)
-    op_mapping = {"sum": "", "max": ""}
+    op_mapping = {"sum": "x1+x2", "max": "max(x1,x2)"}
+    #op = cl_build("reduce_op", """
+    #__kernel void reduce_op(
+    #    __global const float *a, __local float *b, __global float *res_g) {
+    #  int gl_id = get_global_id(0);
+    #  int lcl_id = get_local_id(0);
+    #  int grp_s = get_local_size(0);
+    #  int grp_id = get_group_id(0);
+    #  // copy to local
+    #  b[lcl_id] = a[gl_id];
+    #  barrier(CLK_LOCAL_MEM_FENCE);
+    #  for (int stride=grp_s>>1; stride>0; stride>>=1) {
+    #    if (lcl_id < stride)
+    #      b[lcl_id] += b[lcl_id + stride];
+    #    barrier(CLK_LOCAL_MEM_FENCE);
+    #  }
+    #  if (lcl_id == 0)
+    #    res_g[grp_id] = b[0];
+    #}
+    #""")
+    #op = cl_build("reduce_op", """
+    #__kernel void reduce_op(
+    #    __global const float *a, __local float *b, __global float *res_g) {
+    #  int gl_id_0 = get_global_id(0), gl_id_1 = get_global_id(1);
+    #  int gl_s_1 = get_global_size(1);
+    #  int lcl_id = get_local_id(0);
+    #  int grp_s_0 = get_local_size(0);
+    #  int grp_s_1 = get_local_size(0);
+    #  int grp_id_0 = get_group_id(0);
+    #  b[lcl_id] = a[gl_id_0*gl_s_1 + gl_id_1];  // 1d-sum: gl_id; 2d-sum0:
+    #  barrier(CLK_LOCAL_MEM_FENCE);
+    #  for (int stride=grp_s_0>>1; stride>0; stride>>=1) {
+    #    if (lcl_id < stride)
+    #      b[lcl_id] += b[lcl_id + stride];
+    #    barrier(CLK_LOCAL_MEM_FENCE);
+    #  }
+    #  if (lcl_id == 0)
+    #    res_g[grp_id_0*(gl_s_1/grp_s_1)+gl_id_1] = b[0];
+    #}
+    #""")
+
+    #op = cl_build("reduce_op", """
+    #__kernel void reduce_op(
+    #    __global const float *a, __local float *b, __global float *res_g) {
+    #  int gl_id_0 = get_global_id(0), gl_id_1 = get_global_id(1);
+    #  int gl_s_1 = get_global_size(1);
+    #  int lcl_id = get_local_id(1);
+
+    #  int grp_id_1 = get_group_id(1);
+    #  int grp_s_0 = get_local_size(0);
+    #  int grp_s_1 = get_local_size(1);
+
+    #  b[lcl_id] = a[gl_id_0*gl_s_1 + gl_id_1];
+    #  barrier(CLK_LOCAL_MEM_FENCE);
+    #  for (int stride=grp_s_1>>1; stride>0; stride>>=1) {
+    #    if (lcl_id < stride)
+    #      b[lcl_id] += b[lcl_id + stride];
+    #    barrier(CLK_LOCAL_MEM_FENCE);
+    #  }
+    #  if (lcl_id == 0)
+    #    res_g[gl_id_0*(gl_s_1/grp_s_1)+grp_id_1] = b[0];
+    #}
+    #""")
+    a1 = [(f"grp_id_{i}" if i == axis else f"gl_id_{i}") for i in range(len(a.shape))]
+    b1 = [f"(gl_s_{i}/grp_s_{i})" for i in range(len(a.shape))]
+    c1 = ["*".join(b1[i+1:]) for i in range(len(a.shape)-1)] + ["1"]
+    d1 = "+".join([f"{a}*{c}" for a, c in zip(a1, c1)])
+
+    a2 = [f"gl_id_{i}" for i in range(len(a.shape))]
+    b2 = [f"gl_s_{i}" for i in range(len(a.shape))]
+    c2 = ["*".join(b2[i+1:]) for i in range(len(a.shape)-1)] + ["1"]
+    d2 = "+".join([f"{a}*{c}" for a, c in zip(a2, c2)])
+
     op = cl_build("reduce_op", """
     __kernel void reduce_op(
         __global const float *a, __local float *b, __global float *res_g) {
-      int global_id = get_global_id(0);
-      int local_id = get_local_id(0);
-      int group_size = get_local_size(0);
-      int group_id = get_group_id(0);
-      // copy to local
-      b[local_id] = a[global_id];
+      """ + "".join([
+          f"int gl_id_{i}=get_global_id({i});"
+          f"int gl_s_{i}=get_global_size({i});"
+          f"int grp_id_{i}=get_group_id({i});"
+          f"int grp_s_{i}=get_local_size({i});" for i in range(len(a.shape))]) +
+    f"int lcl_id=get_local_id({axis});" +
+    f"b[lcl_id] = a[{d2}];" + """
       barrier(CLK_LOCAL_MEM_FENCE);
-      for (int stride=group_size>>1; stride>0; stride>>=1) {
-        if (local_id < stride)
-          b[local_id] += b[local_id + stride];
+      """ + f"for (int stride=grp_s_{axis}>>1; stride>0; stride>>=1)" +
+      """
+      {
+        float x1 = b[lcl_id], x2 = b[lcl_id + stride];
+        if (lcl_id < stride)
+          b[lcl_id] = """ + op_mapping[name] + """;
+          //b[lcl_id] += b[lcl_id + stride];
         barrier(CLK_LOCAL_MEM_FENCE);
       }
-      if (local_id == 0)
-        res_g[group_id] = b[0];
-    }
-    """)
-    local_mem_size = int(a.dtype().itemsize * np.prod(a.shape)) // group_size
+      if (lcl_id == 0)
+    """ + f"res_g[{d1}] = b[0];" + """
+    }""")
+    local_mem_size = int(a.dtype().itemsize * a.shape[axis]) // group_size
     local_mem = cl.LocalMemory(local_mem_size)
-    op((np.prod(a.shape),), (group_size,), a.buffer, local_mem, ret.buffer)
+    local_size = tuple(group_size if i == axis else 1 for i in range(len(a.shape)))
+    op(a.shape, local_size, a.buffer, local_mem, ret.buffer)
     if n_groups > 1:
-        ret = reduce_op(name, ret)
+        ret = reduce_op(name, ret, axis=axis)
     return ret

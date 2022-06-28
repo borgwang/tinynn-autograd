@@ -147,6 +147,9 @@ class GPUArray:
     def sum(self, axis):
         return reduce_op("sum", self, axis=axis)
 
+    def max(self, axis):
+        return reduce_op("max", self, axis=axis)
+
 
 class CPUArray:
     pass

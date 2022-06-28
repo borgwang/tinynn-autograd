@@ -1,4 +1,5 @@
 import time
+import sys
 
 import numpy as np
 
@@ -21,19 +22,57 @@ print(pred.cpu())
 """
 
 #data_x = np.arange(12).reshape(3, 4).astype(np.float32)
-@profile
-def test():
-    N = 1000
+def test_sum_1d():
     data_x = np.arange(2**16).astype(np.float32)
-    for _ in range(N):
-        a = data_x.sum()
-    #print(a)
-    x = Tensor(data_x).gpu()
-    for _ in range(N):
-        a = x.sum()
-    #print(a.cpu())
-import sys
-test()
+    a = data_x.sum()
+    b = Tensor(data_x).gpu().sum()
+    assert np.allclose(a, b.cpu())
+
+def test_sum_2d():
+    data_x = np.random.randint(-5, 6, (2**8, 2**8)).astype(np.float32)
+    a = data_x.sum()
+    b = Tensor(data_x).gpu().sum(axis=0)
+    assert np.allclose(a, b.cpu())
+
+
+def test_sum_2d_axis_0():
+    #data_x = np.arange(2**12).astype(np.float32)
+    data_x = np.random.randint(-5, 6, (2**16, 10)).astype(np.float32)
+    a = data_x.sum(axis=0)
+    b = Tensor(data_x).gpu().sum(axis=0)
+    assert np.allclose(a, b.cpu())
+    print("test_sum_2d_axis_0 pass")
+
+def test_sum_2d_axis_1():
+    #data_x = np.arange(2**12).astype(np.float32)
+    data_x = np.random.randint(-5, 6, (10, 2**16)).astype(np.float32)
+    a = data_x.sum(axis=1)
+    b = Tensor(data_x).gpu().sum(axis=1)
+    assert np.allclose(a, b.cpu())
+    print("test_sum_2d_axis_1 pass")
+
+def test_sum_3d_axis_0():
+    #data_x = np.arange(2**12).astype(np.float32)
+    data_x = np.random.randint(-5, 6, (2**16, 3, 3)).astype(np.float32)
+    a = data_x.sum(axis=0)
+    b = Tensor(data_x).gpu().sum(axis=0)
+    assert np.allclose(a, b.cpu())
+    print("test_sum_3d_axis_0 pass")
+
+
+def test_max_3d_axis_0():
+    #data_x = np.arange(2**12).astype(np.float32)
+    data_x = np.random.randint(-5, 6, (2**16, 3, 3)).astype(np.float32)
+    a = data_x.max(axis=0)
+    b = Tensor(data_x).gpu().max(axis=0)
+    assert np.allclose(a, b.cpu())
+    print("test_sum_3d_axis_0 pass")
+
+#test_sum_1d()
+test_sum_2d_axis_0()
+test_sum_2d_axis_1()
+test_sum_3d_axis_0()
+test_max_3d_axis_0()
 sys.exit()
 
 data_x = np.random.normal(0, 1, (BS, idim)).astype(np.float32)

@@ -9,11 +9,6 @@ from core.ndarray import GPUArray
 import pyopencl as cl
 
 
-os.environ["PYOPENCL_CTX"] = "0:2"
-CTX = cl.create_some_context()
-QUEUE = cl.CommandQueue(CTX)
-
-
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
         obj = Tensor(obj)

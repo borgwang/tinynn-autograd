@@ -206,7 +206,7 @@ def exp_(ts):
 
 
 def max_(ts, axis=None):
-    values = np.max(ts.values, axis=axis)
+    values = ts.values.max(axis=axis)
 
     def grad_fn(grad):
         return grad * (ts.values.max(axis=axis, keepdims=1) == ts.values)
