@@ -20,12 +20,21 @@ pred = x @ y.T
 print(pred.cpu())
 """
 
-data_x = np.arange(12).reshape(3, 4).astype(np.float32)
-data_x = np.arange(10).astype(np.float32)
-print(data_x.sum())
-x = Tensor(data_x).gpu()
-print(x.sum().cpu())
-import pdb; pdb.set_trace()
+#data_x = np.arange(12).reshape(3, 4).astype(np.float32)
+@profile
+def test():
+    N = 1000
+    data_x = np.arange(2**16).astype(np.float32)
+    for _ in range(N):
+        a = data_x.sum()
+    #print(a)
+    x = Tensor(data_x).gpu()
+    for _ in range(N):
+        a = x.sum()
+    #print(a.cpu())
+import sys
+test()
+sys.exit()
 
 data_x = np.random.normal(0, 1, (BS, idim)).astype(np.float32)
 data_y = np.random.normal(0, 1, (BS, odim)).astype(np.float32)

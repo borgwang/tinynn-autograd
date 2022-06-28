@@ -14,7 +14,7 @@ cl_queue = cl.CommandQueue(cl_ctx)
 
 @lru_cache()
 def cl_build(name, program):
-    print(f"miss cache. rebuild {name}")
+    print(f"miss cache. build {name}")
     cl_kernel = cl.Program(cl_ctx, program).build().__getattr__(name)
     return lambda *args: cl_kernel(cl_queue, *args)
 
@@ -114,8 +114,11 @@ def matmul_op(a, b, ret=None):
     return ret
 
 def reduce_op(name, a, ret=None, axis=None, keepdims=True):
+    # TODO: support axis and keepdims
     # TODO: https://github.com/JimMadge/OpenCL-Reduction-Example/blob/master/reduction/reduction.cl
-    ret_shape = ()
+    group_size = 256
+    n_groups = a.shape[0] // group_size
+    ret_shape = (n_groups,) if n_groups > 1 else ()
     if ret is None:
         ret = a.__class__(shape=ret_shape, dtype=a.dtype)
     op_mapping = {"sum": "", "max": ""}
@@ -126,12 +129,9 @@ def reduce_op(name, a, ret=None, axis=None, keepdims=True):
       int local_id = get_local_id(0);
       int group_size = get_local_size(0);
       int group_id = get_group_id(0);
-      printf("%d, %d, %d, %d \\n", global_id, local_id, group_size, group_id);
-
       // copy to local
       b[local_id] = a[global_id];
       barrier(CLK_LOCAL_MEM_FENCE);
-
       for (int stride=group_size>>1; stride>0; stride>>=1) {
         if (local_id < stride)
           b[local_id] += b[local_id + stride];
@@ -141,8 +141,9 @@ def reduce_op(name, a, ret=None, axis=None, keepdims=True):
         res_g[group_id] = b[0];
     }
     """)
-    local_mem_size = int(a.dtype().itemsize * np.prod(a.shape))
+    local_mem_size = int(a.dtype().itemsize * np.prod(a.shape)) // group_size
     local_mem = cl.LocalMemory(local_mem_size)
-    op((np.prod(a.shape),), None, a.buffer, local_mem, ret.buffer)
+    op((np.prod(a.shape),), (group_size,), a.buffer, local_mem, ret.buffer)
+    if n_groups > 1:
+        ret = reduce_op(name, ret)
     return ret
-
