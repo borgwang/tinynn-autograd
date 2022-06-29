@@ -148,11 +148,11 @@ class Tensor:
     def __len__(self):
         return len(self.values)
 
-    def sum(self, axis=None):
-        return ops.sum_(self, axis=axis)
+    def sum(self, axis=None, keepdims=False):
+        return ops.sum_(self, axis=axis, keepdims=keepdims)
 
-    def max(self, axis=None):
-        return ops.max_(self, axis=axis)
+    def max(self, axis=None, keepdims=False):
+        return ops.max_(self, axis=axis, keepdims=keepdims)
 
     def min(self, axis=None):
         return ops.min_(self, axis=axis)
@@ -180,10 +180,12 @@ class Tensor:
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         if grad is None:
             if self._gpu:
-                grad = GPUAarray.ones(self.shape, dtype=np.float32)
+                grad = GPUArray.ones(self.shape, dtype=np.float32)
             else:
                 grad = np.ones(self.shape, dtype=np.float32)
-
+        # zero grad if needed
+        if self.requires_grad and self.grad is None:
+            self.zero_grad()
         # accumulate the gradients
         self.grad += grad
         # propagate the gradients to its dependencies

@@ -41,21 +41,15 @@ def build_unary_ops_tensor(ts, grad_fn, values):
 
 def add_(ts1, ts2):
     values = ts1.values + ts2.values
-    # c = a + b
-    # D_c / D_a = 1.0
-    # D_c / D_b = 1.0
-    # also need to handle broadcasting
-    def grad_fn_ts1(grad):
-        return grad
-
-    def grad_fn_ts2(grad):
-        return grad
-
+    grad_fn_ts1 = grad_fn_ts2 = lambda g: g
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
 
 def sub_(ts1, ts2):
-    return ts1 + (-ts2)
+    values = ts1.values - ts2.values
+    grad_fn_ts1 = lambda g: g
+    grad_fn_ts2 = lambda g: -g
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
 
 def mul_(ts1, ts2):
@@ -138,11 +132,9 @@ def contiguous_transpose_op(ts):
 def matmul_(ts1, ts2):
     values = ts1.values @ ts2.values
     def grad_fn_ts1(grad):
-        #return grad @ ts2.values.T
-        return matmul_op(grad, ts2.values.T)
-    def grad_fn_ts2(grad):
-        #return ts1.values.T @ grad
-        return matmul_op(ts1.values.T, grad)
+        return grad @ t2.values.T
+    grad_fn_ts1 = lambda g: g @ ts2.values.T
+    grad_fn_ts2 = lambda g: ts1.values.T @ g
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
 
@@ -205,8 +197,8 @@ def exp_(ts):
     return build_unary_ops_tensor(ts, grad_fn, values)
 
 
-def max_(ts, axis=None):
-    values = ts.values.max(axis=axis)
+def max_(ts, axis, keepdims):
+    values = ts.values.max(axis=axis, keepdims=keepdims)
 
     def grad_fn(grad):
         return grad * (ts.values.max(axis=axis, keepdims=1) == ts.values)
@@ -230,13 +222,14 @@ def log_(ts):
     return build_unary_ops_tensor(ts, grad_fn, values)
 
 
-def sum_(ts, axis):
-    values = ts.values.sum(axis)
-    if axis is not None:
+def sum_(ts, axis, keepdims):
+    values = ts.values.sum(axis, keepdims)
+    if axis is not None:  # TODO
         repeat = ts.values.shape[axis]
     def grad_fn(grad):
         if axis is None:
-            return grad * cl_array.zeros(QUEUE, ts.shape, dtype=np.float32) + 1.0
+            #return grad * cl_array.zeros(QUEUE, ts.shape, dtype=np.float32) + 1.0
+            return grad * grad.__class__.ones(ts.shape)
         else:
             grad = np.expand_dims(grad, axis)
             grad = np.repeat(grad, repeat, axis)

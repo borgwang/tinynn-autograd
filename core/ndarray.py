@@ -54,6 +54,7 @@ class GPUArray:
         return cls(data=buffer_data)
 
     def to_cpu(self, shape=None):
+        # TODO: stride
         shape = self.shape if shape is None else shape
         data = np.empty(shape, dtype=self.dtype)
         cl.enqueue_copy(cl_queue, data, self.buffer, is_blocking=True)
@@ -69,7 +70,6 @@ class GPUArray:
 
     def expand(self, shape):
         assert len(shape) == len(self.shape)
-
         strides = []
         for i, (s1, s2) in enumerate(zip(self.shape, shape)):
             if s1 < s2:
@@ -144,11 +144,15 @@ class GPUArray:
             self._c_contiguous, self._f_contiguous = True, False
         return self
 
-    def sum(self, axis):
-        return reduce_op("sum", self, axis=axis)
+    @property
+    def T(self):
+        return self.transpose(axes=(0, 1))  # TODO: could be arbitray two dims
 
-    def max(self, axis):
-        return reduce_op("max", self, axis=axis)
+    def sum(self, axis, keepdims):
+        return reduce_op("sum", self, axis=axis, keepdims=keepdims)
+
+    def max(self, axis, keepdims):
+        return reduce_op("max", self, axis=axis, keepdims=keepdims)
 
 
 class CPUArray:
