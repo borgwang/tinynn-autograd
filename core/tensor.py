@@ -21,11 +21,13 @@ class Tensor:
                  values,
                  requires_grad=False,
                  dependency=None,
-                 dtype=np.float32):
+                 dtype=np.float32,
+                 name=""):
         gpu = isinstance(values, GPUArray)
         self.values = values if gpu else np.asarray(values, dtype)
         self._shape = self._values.shape
         self._gpu = gpu
+        self.name = name
 
         self.grad = None
         self.requires_grad = requires_grad
@@ -44,8 +46,9 @@ class Tensor:
         return self
 
     def cpu(self):
+        # TODO: return CPUArray rather than numppy array
         if self._gpu:
-            return self._values.to_cpu()
+            return self._values.numpy()
         return self._values
 
     @property
@@ -54,7 +57,6 @@ class Tensor:
 
     @values.setter
     def values(self, new_values):
-        #self._values = np.asarray(new_values)
         self._values = new_values
         self.grad = None
 
@@ -96,7 +98,7 @@ class Tensor:
         return ops.sub_(as_tensor(other), self)
 
     def __isub__(self, other):
-        self.values = self.values - as_tensor(other).values
+        self._values = self._values - as_tensor(other).values
         return self
 
     def __mul__(self, other):
@@ -186,10 +188,11 @@ class Tensor:
         # zero grad if needed
         if self.requires_grad and self.grad is None:
             self.zero_grad()
-        # accumulate the gradients
+        # accumulate the gradients and propagate
         self.grad += grad
-        # propagate the gradients to its dependencies
         for dep in self.dependency:
+            if dep["tensor"].name == "b":
+                import pdb; pdb.set_trace()
             grad_for_dep = dep["grad_fn"](grad)
             dep["tensor"].backward(grad_for_dep)
 

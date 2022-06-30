@@ -102,54 +102,49 @@ data_y = np.random.normal(0, 1, (BS, odim)).astype(np.float32)
 data_w = np.random.normal(0, 1, (idim, odim)).astype(np.float32)
 data_b = np.zeros((1, odim)).astype(np.float32)
 
-n_ep = 2
+n_ep = 3
 
 def run_gpu():
-    print("GPU")
-
+    print("---- GPU -----")
     x = Tensor(data_x).gpu()
     y = Tensor(data_y).gpu()
     w = Tensor(data_w, requires_grad=True).gpu()
-    #b = Tensor(data_b, requires_grad=True).gpu()
+    b = Tensor(data_b, requires_grad=True, name="b").gpu()
 
     t0 = time.time()
     for epoch in range(n_ep):
         w.zero_grad()
-        #b.zero_grad()
-        pred = x @ w
+        b.zero_grad()
+        pred = x @ w + b
         err = pred - y
-        err_square = err*err
-        loss = err_square.sum()
+        loss = (err * err).sum()
         loss.backward()
-        #assert np.allclose(err.grad.to_cpu(), 2 * err.cpu())
-        #assert np.allclose(err_square.grad.to_cpu(), np.ones(err_square.shape))
         w -= 0.0001 * w.grad
+        b -= 0.0001 * b.grad
+
     t1 = time.time()
     print(f"GPU compute cost: {t1 - t0:.5f} s")
-    print(f"err check: {err.values.to_cpu().sum():.8f}")
-    print(f"err square check: {err_square.values.to_cpu().sum():.8f}")
-    print(f"loss check: {loss.values.to_cpu():.8f}")
+    print(f"err check: {err.values.numpy().sum():.8f}")
+    print(f"loss check: {loss.values.numpy():.8f}")
 
 
 def run_cpu():
-    print("CPU")
+    print("---- CPU -----")
     x, y, w, b = data_x, data_y, data_w, data_b
 
     t0 = time.time()
     for epoch in range(n_ep):
-        pred = x @ w
+        pred = x @ w + b
         err = pred - y
-        err_square = err*err
-        loss = err_square.sum()
+        loss = (err * err).sum()
         dw = x.T @ (2 * err)
-        #print(f"epoch{epoch} w_grad: {dw.sum()} ")
+        db = (2 * err).sum(axis=0, keepdims=True)
         w -= 0.0001 * dw
+        b -= 0.0001 * db
     t1 = time.time()
     print(f"CPU compute cost: {t1 - t0:.3f}s")
     print(f"err check: {err.sum():.8f}")
-    print(f"err square check: {err_square.sum():.8f}")
     print(f"loss check: {loss:.8f}")
-
 
 run_gpu()
 run_cpu()

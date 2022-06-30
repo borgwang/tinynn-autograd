@@ -41,7 +41,21 @@ def build_unary_ops_tensor(ts, grad_fn, values):
 
 def add_(ts1, ts2):
     values = ts1.values + ts2.values
-    grad_fn_ts1 = grad_fn_ts2 = lambda g: g
+    def grad_fn_ts1(grad):
+        for _ in range(grad.ndim - ts1.values.ndim):
+            grad = grad.sum(axis=0)
+        for i, dim in enumerate(ts1.shape):
+            if dim == 1:
+                grad = grad.sum(axis=i, keepdims=True)
+        return grad
+
+    def grad_fn_ts2(grad):
+        for _ in range(grad.ndim - ts2.values.ndim):
+            grad = grad.sum(axis=0)
+        for i, dim in enumerate(ts2.shape):
+            if dim == 1:
+                grad = grad.sum(axis=i, keepdims=True)
+        return grad
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
 

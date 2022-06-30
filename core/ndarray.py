@@ -22,12 +22,12 @@ class GPUArray:
         self.buffer = alloc_buffer(shape, dtype, data)
         self.strides = tuple(int(np.prod(shape[i+1:])) for i in range(len(shape)))
         self.shape, self.dtype = shape, dtype
-        self._c_contiguous, self._f_contiguous = True, False
+        self.__c_contiguous, self.__f_contiguous = True, False
         self.register_ops()
 
     def register_ops(self):
         cls = self.__class__
-        for op in ("mul", "add", "sub", "truediv"):
+        for op in ("add", "sub", "mul", "truediv"):
             setattr(cls, f"__{op}__",
                     (lambda op: lambda a, b: binary_op(op, a, as_gpu_array(b)))(op))
             setattr(cls, f"__i{op}__",
@@ -42,8 +42,16 @@ class GPUArray:
         return self.buffer.size
 
     @property
-    def ndims(self):
+    def ndim(self):
         return len(self.shape)
+
+    @property
+    def c_contiguous(self):
+        return self.__c_contiguous
+
+    @property
+    def f_contiguous(self):
+        return self.__f_contiguous
 
     @classmethod
     def empty(cls, shape, dtype):
@@ -62,45 +70,49 @@ class GPUArray:
         return inst
 
     @classmethod
-    def from_cpu(cls, buffer_data):
-        return cls(data=buffer_data)
+    def from_numpy(cls, arr):
+        return cls(data=arr)
 
-    def to_cpu(self):
+    def numpy(self):
         data = np.empty(self.shape, dtype=self.dtype)
-        cl.enqueue_copy(cl_queue, data, self.buffer, is_blocking=True)
-        np_strides = tuple(s * self.dtype().itemsize for s in self.strides)
-        return np.lib.stride_tricks.as_strided(data, self.shape, np_strides)
-
-        #data = np.empty(self.shape, dtype=self.dtype)
-        #cl.enqueue_copy(cl_queue, data, self.contiguous().buffer, is_blocking=True)
-        #return data
+        cl.enqueue_copy(cl_queue, data, self.contiguous().buffer, is_blocking=True)
+        return data
 
     def contiguous(self):
         return contiguous_op(self)
 
     def reshape(self, shape):
-        # TODO: return copy if tensor is not contigugous
+        assert np.prod(shape) == np.prod(self.shape)
         inst = copy.copy(self)
-        assert np.prod(shape) == np.prod(inst.shape)
-        inst.strides = tuple(int(np.prod(shape[i+1:])) for i in range(len(shape)))
+        if self.__c_contiguous or self.__f_contiguous:
+            if self.__c_contiguous:
+                inst.strides = tuple(int(np.prod(shape[i+1:])) for i in range(len(shape)))
+            else:
+                inst.strides = tuple(int(np.prod(shape[:i])) for i in range(len(shape)))
+        else:
+            # return a copy
+            inst = self.contiguous()
+            inst.strides = tuple(int(np.prod(shape[i+1:])) for i in range(len(shape)))
         inst.shape = tuple(shape)
-        inst._update_contiguousness()
+        inst.__update_contiguousness()
         return inst
 
     def expand(self, shape):
         inst = copy.copy(self)
-        assert len(shape) == inst.ndims
+        assert len(shape) == inst.ndim
         strides = []
         for i, (s1, s2) in enumerate(zip(inst.shape, shape)):
             if s1 < s2:
                 assert s1 == 1
             strides.append(0 if s1 < s2 else inst.strides[i])
         inst.shape, inst.strides = tuple(shape), tuple(strides)
-        inst._update_contiguousness()
+        inst.__update_contiguousness()
         return inst
 
     def storage(self):
-        return self.to_cpu(shape=(self.buffer.size // self.dtype().itemsize,))
+        data = np.empty((self.buffer.size // self.dtype().itemsize,), dtype=self.dtype)
+        cl.enqueue_copy(cl_queue, data, self.buffer, is_blocking=True)
+        return data
 
     def _fill(self, value):
         cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size)
@@ -109,14 +121,14 @@ class GPUArray:
         inst = copy.copy(self)
         inst.strides = tuple(inst.strides[a] for a in axes)
         inst.shape = tuple(inst.shape[a] for a in axes)
-        inst._update_contiguousness()
+        inst.__update_contiguousness()
         return inst
 
-    def _update_contiguousness(self):
-        strides = [self.strides[i] for i in range(self.ndims) if self.shape[i] != 1]
+    def __update_contiguousness(self):
+        strides = [self.strides[i] for i in range(self.ndim) if self.shape[i] != 1]
         sorted_strides = sorted(strides)
-        self._f_contiguous = sorted_strides == strides
-        self._c_contiguous = sorted_strides[::-1] == strides
+        self.__f_contiguous = sorted_strides == strides
+        self.__c_contiguous = sorted_strides[::-1] == strides
 
     @property
     def T(self):
