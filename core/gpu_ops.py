@@ -1,5 +1,3 @@
-"""Tensor operations (with autograd context)"""
-
 from functools import lru_cache
 
 import numpy as np
@@ -60,10 +58,7 @@ def add_(ts1, ts2):
 
 
 def sub_(ts1, ts2):
-    values = ts1.values - ts2.values
-    grad_fn_ts1 = lambda g: g
-    grad_fn_ts2 = lambda g: -g
-    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
+    return ts1 + (-ts2)
 
 
 def mul_(ts1, ts2):
@@ -111,7 +106,6 @@ def pow_(ts1, ts2):
         return grad * (ts2.values * ts1.values ** (ts2.values - np.ones((), dtype=np.float32)))
 
     def grad_fn_ts2(grad):
-        # TODO
         grad = grad * (np.log(ts1.values) * values)
         for _ in range(grad.ndim - ts2.values.ndim):
             grad = grad.sum(axis=0)

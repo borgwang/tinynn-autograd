@@ -52,7 +52,7 @@ def broadcast(a, b):
 def unary_op(name, a, ret=None):
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
-    op_mapping = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": ""}  # TODO: relu?
+    op_mapping = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": ""}  # TODO: relu
     unary_op = cl_build("unary_op", """
     __kernel void unary_op(""" +
     "".join([f"int a_s{i}, int res_s{i}, " for i in range(a.ndim)]) +
@@ -122,7 +122,6 @@ def matmul_op(a, b, ret=None):
 def contiguous_op(x):
     if not x.ndim:
         return x
-    ret_shape = x.shape
     ret = x.__class__(shape=x.shape, dtype=x.dtype)
     args = "".join([f"int a{i},int b{i}," for i in range(x.ndim)])
     define_strides = ";".join([f"int _s{i}="+"*".join(f"a{j}" for j in range(i+1, x.ndim))

@@ -94,7 +94,7 @@ sys.exit()
 """
 
 BS = 2**8
-idim = 2**8
+idim = 2**12
 odim = 2**8
 
 data_x = np.random.normal(0, 1, (BS, idim)).astype(np.float32)
@@ -102,14 +102,14 @@ data_y = np.random.normal(0, 1, (BS, odim)).astype(np.float32)
 data_w = np.random.normal(0, 1, (idim, odim)).astype(np.float32)
 data_b = np.zeros((1, odim)).astype(np.float32)
 
-n_ep = 3
+n_ep = 10
 
 def run_gpu():
     print("---- GPU -----")
     x = Tensor(data_x).gpu()
     y = Tensor(data_y).gpu()
     w = Tensor(data_w, requires_grad=True).gpu()
-    b = Tensor(data_b, requires_grad=True, name="b").gpu()
+    b = Tensor(data_b, requires_grad=True).gpu()
 
     t0 = time.time()
     for epoch in range(n_ep):
