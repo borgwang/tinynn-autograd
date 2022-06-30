@@ -102,7 +102,7 @@ data_y = np.random.normal(0, 1, (BS, odim)).astype(np.float32)
 data_w = np.random.normal(0, 1, (idim, odim)).astype(np.float32)
 data_b = np.zeros((1, odim)).astype(np.float32)
 
-n_ep = 1
+n_ep = 2
 
 def run_gpu():
     print("GPU")
@@ -121,9 +121,8 @@ def run_gpu():
         err_square = err*err
         loss = err_square.sum()
         loss.backward()
-        assert np.allclose(err.grad.to_cpu(), 2 * err.cpu())
-        assert np.allclose(err_square.grad.to_cpu(), np.ones(err_square.shape))
-        import pdb; pdb.set_trace()
+        #assert np.allclose(err.grad.to_cpu(), 2 * err.cpu())
+        #assert np.allclose(err_square.grad.to_cpu(), np.ones(err_square.shape))
         w -= 0.0001 * w.grad
     t1 = time.time()
     print(f"GPU compute cost: {t1 - t0:.5f} s")
@@ -143,13 +142,14 @@ def run_cpu():
         err_square = err*err
         loss = err_square.sum()
         dw = x.T @ (2 * err)
-        print(f"epoch{epoch} w_grad: {dw.sum()} ")
+        #print(f"epoch{epoch} w_grad: {dw.sum()} ")
         w -= 0.0001 * dw
     t1 = time.time()
     print(f"CPU compute cost: {t1 - t0:.3f}s")
     print(f"err check: {err.sum():.8f}")
     print(f"err square check: {err_square.sum():.8f}")
     print(f"loss check: {loss:.8f}")
+
 
 run_gpu()
 run_cpu()

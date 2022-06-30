@@ -111,7 +111,6 @@ def pow_(ts1, ts2):
 
 
 def contiguous_transpose_op(ts):
-    # NOTE: input is a tensor because we need the shape attribute from tensor instance.
     from core.tensor import QUEUE
     assert ts.values.flags.c_contiguous, "Array must be contiguous before transpose_op!"
     length = np.prod(ts.values.shape)

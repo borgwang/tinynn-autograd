@@ -49,6 +49,7 @@ def broadcast(a, b):
         b = b.expand(broadcast_shape)
     return a, b
 
+
 def unary_op(name, a, ret=None):
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
@@ -67,6 +68,7 @@ def unary_op(name, a, ret=None):
     args = [np.int32(s) for ss in zip(a.strides, ret.strides) for s in ss]
     unary_op(a.shape, None, *args, a.buffer, ret.buffer)
     return ret
+
 
 def binary_op(name, a, b, ret=None):
     a, b = broadcast(a, b)
@@ -117,10 +119,36 @@ def matmul_op(a, b, ret=None):
         a.buffer, b.buffer, ret.buffer)
     return ret
 
+
+def contiguous_op(x):
+    ret_shape = x.shape
+    ret = x.__class__(shape=x.shape, dtype=x.dtype)
+    args = "".join([f"int a{i},int b{i}," for i in range(x.ndims)])
+    indices = ["int j{i}=;" for i in range(x.ndims)]
+
+    define_strides = ";".join([f"int _s{i}="+"*".join(f"a{j}" for j in range(i+1, x.ndims))
+                               for i in range(x.ndims-1)])
+    define_strides += f";int _s{x.ndims-1}=1;"  # TODO: 0d array handle
+    defind_indices = "".join(f"int _i{i}=curr/_s{i}; curr%=_s{i}; " for i in range(x.ndims))
+    addr = "+".join([f"b{i}*_i{i}" for i in range(x.ndims)])
+    src = """
+    __kernel void contiguous_op(""" + args + """__global const float *A, __global float *B) {
+      int gl_id = get_global_id(0);
+      int curr = gl_id;
+      """ + define_strides + """
+      """ + defind_indices + """
+      B[gl_id] = A[""" + addr + """];
+    }
+    """
+    op = cl_build("contiguous_op", src)
+    args = sum([[np.int32(a), np.int32(b)] for a, b in zip(x.shape, x.strides)], [])
+    op((np.prod(x.shape),), None, *args, x.buffer, ret.buffer)
+    return ret
+
 def reduce_op(name, x, ret=None, axis=None, keepdims=True):
     # TODO: https://github.com/JimMadge/OpenCL-Reduction-Example/blob/master/reduction/reduction.cl
     # - padding
-    # - contiguous
+    # - handle uncontiguous input
     # - 4D tensor reduction
     # - dynamic group_size
     x_shape = x.shape
