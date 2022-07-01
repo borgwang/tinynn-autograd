@@ -124,18 +124,16 @@ def contiguous_op(x):
         return x
     ret = x.__class__(shape=x.shape, dtype=x.dtype)
     args = "".join([f"int a{i},int b{i}," for i in range(x.ndim)])
-    define_strides = ";".join([f"int _s{i}="+"*".join(f"a{j}" for j in range(i+1, x.ndim))
+    def_strides = ";".join([f"int _s{i}="+"*".join(f"a{j}" for j in range(i+1, x.ndim))
                                for i in range(x.ndim-1)])
-    define_strides += f";int _s{x.ndim-1}=1;"
-    defind_indices = "".join(f"int _i{i}=curr/_s{i}; curr%=_s{i}; " for i in range(x.ndim))
+    def_strides += f";int _s{x.ndim-1}=1;"
+    def_indices = "".join(f"int _i{i}=curr/_s{i}; curr%=_s{i}; " for i in range(x.ndim))
     addr = "+".join([f"b{i}*_i{i}" for i in range(x.ndim)])
     src = """
     __kernel void contiguous_op(""" + args + """__global const float *A, __global float *B) {
-      int gl_id = get_global_id(0);
-      int curr = gl_id;
-      """ + define_strides + """
-      """ + defind_indices + """
-      B[gl_id] = A[""" + addr + """];
+      int curr = get_global_id(0);
+      """ + def_strides + def_indices + """
+      B[get_global_id(0)] = A[""" + addr + """];
     }
     """
     op = cl_build("contiguous_op", src)
@@ -149,22 +147,19 @@ def reduce_op(name, x, ret=None, axis=None, keepdims=True):
     # - padding
     # - handle uncontiguous input
     # - 4D tensor reduction
-    # - dynamic group_size
     x_shape = x.shape
     if axis is None:
         axis, x_shape = 0, (np.prod(x.shape),)
     ndim, length = len(x_shape), x_shape[axis]
-
-    group_size = 2**4  # 32
-    n_groups = length // group_size
+    grp_size = 2 ** [i for i in range(8, -1, -1) if length % (2**i) == 0][0]
+    n_groups = length // grp_size
     if n_groups <= 1:
         if keepdims:
             ret_shape = tuple(d if i != axis else 1 for i, d in enumerate(x_shape))
         else:
             ret_shape = tuple(d for i, d in enumerate(x_shape) if i != axis)
     else:
-        ret_shape = tuple(d // group_size if i == axis else d
-                          for i, d in enumerate(x_shape))
+        ret_shape = tuple(d // grp_size if i == axis else d for i, d in enumerate(x_shape))
     if ret is None:
         ret = x.__class__(shape=ret_shape, dtype=x.dtype)
     op_mapping = {"sum": "a+b", "max": "max(a,b)"}
@@ -177,7 +172,6 @@ def reduce_op(name, x, ret=None, axis=None, keepdims=True):
     b = [f"gl_s_{i}" for i in range(ndim)]
     c = ["*".join(b[i+1:]) for i in range(ndim-1)] + ["1"]
     gl2lcl = "+".join([f"{a_}*{c_}" for a_, c_ in zip(a, c)])
-
     op = cl_build("reduce_op", """
     __kernel void reduce_op(
         __global const float *A, __local float *B, __global float *C) {
@@ -198,10 +192,13 @@ def reduce_op(name, x, ret=None, axis=None, keepdims=True):
       }
       if (lcl_id == 0) """ + f"C[{lcl2gl}] = B[0];" + """
     }""")
-    local_mem_size = int(x.dtype().itemsize * x_shape[axis]) // group_size
+    local_mem_size = int(x.dtype().itemsize * x_shape[axis]) // grp_size
     local_mem = cl.LocalMemory(local_mem_size)
-    local_size = tuple(group_size if i == axis else 1 for i in range(ndim))
+    local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
     op(x_shape, local_size, x.buffer, local_mem, ret.buffer)
+    print(f"grp_size: {grp_size}, n_groups: {n_groups} retshape: {ret.shape}")
+    print(f"!!!!!!!!!! {ret.numpy()}")
     if n_groups > 1:
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)
     return ret
+

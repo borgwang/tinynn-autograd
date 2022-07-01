@@ -4,7 +4,8 @@ import numpy as np
 import pyopencl as cl
 
 from core.ops_gpu import cl_ctx, cl_queue, alloc_buffer
-from core.ops_gpu import binary_op, matmul_op, unary_op, reduce_op, contiguous_op
+from core.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
+
 
 
 def as_gpu_array(obj):
@@ -23,6 +24,7 @@ class GPUArray:
         self.strides = tuple(int(np.prod(shape[i+1:])) for i in range(len(shape)))
         self.shape, self.dtype = shape, dtype
         self.__c_contiguous, self.__f_contiguous = True, False
+        self.__reset_contiguousness()
         self.register_ops()
 
     def register_ops(self):
@@ -94,7 +96,7 @@ class GPUArray:
             inst = self.contiguous()
             inst.strides = tuple(int(np.prod(shape[i+1:])) for i in range(len(shape)))
         inst.shape = tuple(shape)
-        inst.__update_contiguousness()
+        inst.__reset_contiguousness()
         return inst
 
     def expand(self, shape):
@@ -106,7 +108,7 @@ class GPUArray:
                 assert s1 == 1
             strides.append(0 if s1 < s2 else inst.strides[i])
         inst.shape, inst.strides = tuple(shape), tuple(strides)
-        inst.__update_contiguousness()
+        inst.__reset_contiguousness()
         return inst
 
     def storage(self):
@@ -121,10 +123,10 @@ class GPUArray:
         inst = copy.copy(self)
         inst.strides = tuple(inst.strides[a] for a in axes)
         inst.shape = tuple(inst.shape[a] for a in axes)
-        inst.__update_contiguousness()
+        inst.__reset_contiguousness()
         return inst
 
-    def __update_contiguousness(self):
+    def __reset_contiguousness(self):
         strides = [self.strides[i] for i in range(self.ndim) if self.shape[i] != 1]
         sorted_strides = sorted(strides)
         self.__f_contiguous = sorted_strides == strides
@@ -135,7 +137,7 @@ class GPUArray:
         axes = tuple(range(len(self.shape))[::-1])
         return self.transpose(axes=axes)
 
-    def sum(self, axis, keepdims):
+    def sum(self, axis=None, keepdims=False):
         return reduce_op("sum", self, axis=axis, keepdims=keepdims)
 
     def max(self, axis, keepdims):

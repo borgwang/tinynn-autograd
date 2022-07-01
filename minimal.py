@@ -7,91 +7,26 @@ from core.tensor import Tensor
 
 np.random.seed(0)
 
-"""
-data_x = np.arange(12).reshape((2, 3, 2)).astype(np.float32)
-data_y = np.ones((4, 2)).astype(np.float32)
-print(data_x @ data_y.T)
-x = Tensor(data_x).gpu()
-y = Tensor(data_y).gpu()
-pred = x @ y.T
-print(pred.cpu())
-"""
+from core.ndarray import GPUArray
 
-"""
-# TODO: move to test
-def test_sum_1d():
-    data_x = np.arange(2**10).astype(np.float32)
-    a = data_x.sum()
-    b = Tensor(data_x).gpu().sum()
-    b = b.cpu()
-    print(a, b)
-    assert a.shape == b.shape
-    assert np.allclose(a, b)
-    print("test_sum_1d pass")
+def check_array(myarr, nparr):
+    assert myarr.shape == nparr.shape  # shape
+    assert myarr.dtype == nparr.dtype  # dtype
+    # strides
+    np_strides = tuple(s // myarr.dtype().itemsize for s in nparr.strides)
+    assert myarr.strides == np_strides
+    # contiguousness
+    assert myarr.c_contiguous == nparr.flags.c_contiguous
+    assert myarr.f_contiguous == nparr.flags.f_contiguous
+    # values
+    assert np.allclose(myarr.numpy(), nparr)
 
-def test_sum_2d():
-    data_x = np.random.randint(-5, 6, (2**5, 2**5)).astype(np.float32)
-    a = data_x.sum()
-    b = Tensor(data_x).gpu().sum()
-    b = b.cpu()
-    assert a.shape == b.shape
-    assert np.allclose(a, b)
-    print("test_sum_2d pass")
-
-def test_sum_2d_axis_0():
-    data_x = np.random.randint(-5, 6, (2**10, 10)).astype(np.float32)
-    a = data_x.sum(axis=0)
-    b = Tensor(data_x).gpu().sum(axis=0)
-    b = b.cpu()
-    assert a.shape == b.shape
-    assert np.allclose(a, b)
-    print("test_sum_2d_axis_0 pass")
-
-def test_sum_2d_axis_1():
-    data_x = np.random.randint(-5, 6, (10, 2**10)).astype(np.float32)
-    a = data_x.sum(axis=1)
-    b = Tensor(data_x).gpu().sum(axis=1)
-    b = b.cpu()
-    assert a.shape == b.shape
-    assert np.allclose(a, b)
-    print("test_sum_2d_axis_1 pass")
-
-def test_sum_3d_axis_0():
-    data_x = np.random.randint(-5, 6, (2**10, 3, 3)).astype(np.float32)
-    a = data_x.sum(axis=0)
-    b = Tensor(data_x).gpu().sum(axis=0)
-    b = b.cpu()
-    assert a.shape == b.shape
-    assert np.allclose(a, b)
-    print("test_sum_3d_axis_0 pass")
-
-def test_max_3d_axis_0():
-    data_x = np.random.randint(-5, 6, (2**10, 3, 3)).astype(np.float32)
-    a = data_x.max(axis=0)
-    b = Tensor(data_x).gpu().max(axis=0)
-    b = b.cpu()
-    assert a.shape == b.shape
-    assert np.allclose(a, b)
-    print("test_sum_3d_axis_0 pass")
-
-def test_sum_2d_axis_0_keepdims():
-    data_x = np.random.randint(-5, 6, (2**10, 10)).astype(np.float32)
-    a = data_x.sum(axis=0, keepdims=True)
-    b = Tensor(data_x).gpu().sum(axis=0, keepdims=True)
-    b = b.cpu()
-    assert a.shape == b.shape
-    assert np.allclose(a, b)
-    print("test_sum_2d_axis_0 keepdims pass")
-
-test_sum_1d()
-test_sum_2d()
-test_sum_2d_axis_0()
-test_sum_2d_axis_1()
-test_sum_3d_axis_0()
-test_max_3d_axis_0()
-test_sum_2d_axis_0_keepdims()
+shape = (2**8,)
+nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
+arr = GPUArray(nparr)
+check_array(arr.sum(), nparr.sum())
+print("pass")
 sys.exit()
-"""
 
 BS = 2**8
 idim = 2**12

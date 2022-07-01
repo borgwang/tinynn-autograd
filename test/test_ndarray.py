@@ -67,7 +67,6 @@ def test_transpose():
     shape = (2, 3, 4)
     nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
     arr = GPUArray(nparr)
-
     check_array(arr.T, nparr.T)
     check_array(arr.transpose((0, 2, 1)), nparr.transpose((0, 2, 1)))
 
@@ -83,3 +82,20 @@ def test_storage():
     assert np.allclose(arr2.storage(), storage)
     arr2 = arr.transpose((0, 2, 1))
     assert np.allclose(arr2.storage(), storage)
+
+
+def test_reduce_op():
+    shape = (2**8,)
+    nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
+    arr = GPUArray(nparr)
+    for _ in range(10):
+        check_array(arr.sum(), nparr.sum())
+    #check_array(arr.sum(axis=0), nparr.sum(axis=0))
+
+
+def test_matmul_op():
+    pass
+
+
+def test_conv_op():
+    pass
