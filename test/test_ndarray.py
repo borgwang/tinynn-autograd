@@ -94,7 +94,6 @@ def test_reduce_op():
     check_array(arr.sum(axis=1), nparr.sum(axis=1))
     # TODO: test for nonconitguous array?
 
-
 def test_matmul_op():
     rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
     shape_pairs = [

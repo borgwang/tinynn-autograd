@@ -16,8 +16,8 @@ cl_ctx, cl_queue = None, None
 devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
 if len(devices) == 0:
     devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
-cl_ctx = cl.Context(devices=devices)  # TODO: cache_dir?
-cl_queue = cl.CommandQueue(cl_ctx)
+cl_ctx = cl.Context(devices=devices)
+cl_queue = cl.CommandQueue(cl_ctx, device=devices[0])
 
 
 @lru_cache()
@@ -125,6 +125,7 @@ def matmul_op(a, b):
       C[bs*M*N+m*N+n] = acc;
     }"""
     op = cl_build("matmul_op", src)
+    # (BS, M, K) @ (BS, K, N)
     BS, M, K, N = prod(a_.shape[:-2]), a_.shape[-2], a_.shape[-1], b_.shape[-1]
     strides = [s for ss in zip(a_.strides, b_.strides) for s in ss]
     args = [np.int32(a_) for a_ in [BS, M, N, K] + strides]
@@ -165,16 +166,15 @@ def reduce_op(name, x, axis=None, keepdims=True):
 
     def cal_ret_shape(x_shp, axis, keepdims, grp_size):
         if x_shp[axis] // grp_size <= 1:
-            if keepdims:
-                ret_shape = (d if i!=axis else 1 for i,d in enumerate(x_shp))
-            else:
-                ret_shape = (d for i,d in enumerate(x_shp) if i!=axis)
+            ret_shape = [d for i, d in enumerate(x_shp) if i != axis]
+            if keepdims: ret_shape.insert(axis, 1)
         else:
             ret_shape = (d // grp_size if i == axis else d for i, d in enumerate(x_shp))
         return tuple(ret_shape)
 
-    grp_size = 2 ** [i for i in range(8, -1, -1) if size % (2**i) == 0][0]
-    assert (size & (size-1) == 0) and size != 0, f"size({size}) is not a power of 2."
+    # TODO: grp_size=256 raise error in AMD device
+    grp_size = 2 ** [i for i in range(8,-1,-1) if size % (2**i) == 0][0]
+    assert (size & (size-1) == 0) and size != 0, f"Size({size}) is not a power of 2."
     ret_shape = cal_ret_shape(x_shp, axis, keepdims, grp_size)
     ret = x.__class__(shape=ret_shape, dtype=x.dtype)
 
@@ -184,7 +184,6 @@ def reduce_op(name, x, axis=None, keepdims=True):
         p2 = [prod(x_shp[axis+1:])] if axis != len(x_shp) - 1 else []
         global_size = p1 + [size] + p2
         axis, ndim = len(p1), len(global_size)
-        if DEBUG: print(f"\nafter merge x_shp={global_size} axis={axis} ndim={ndim}")
 
     a = [(f"grp_id_{i}" if i == axis else f"gl_id_{i}") for i in range(ndim)]
     b = [f"(gl_s_{i}/grp_s_{i})" for i in range(ndim)]
