@@ -17,7 +17,7 @@ devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
 if len(devices) == 0:
     devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
 cl_ctx = cl.Context(devices=devices)
-cl_queue = cl.CommandQueue(cl_ctx, device=devices[0])
+cl_queue = cl.CommandQueue(cl_ctx)
 
 
 @lru_cache()
@@ -172,17 +172,17 @@ def reduce_op(name, x, axis=None, keepdims=True):
             ret_shape = (d // grp_size if i == axis else d for i, d in enumerate(x_shp))
         return tuple(ret_shape)
 
-    grp_size = 2 ** [i for i in range(8,-1,-1) if size % (2**i) == 0][0]
+    if DEBUG: print("device max work group size: ", cl_queue.device.max_work_group_size)
+    grp_size = 2 ** [i for i in range(7,-1,-1) if size % (2**i) == 0][0]
     assert (size & (size-1) == 0) and size != 0, f"Size({size}) is not a power of 2."
     ret_shape = cal_ret_shape(x_shp, axis, keepdims, grp_size)
     ret = x.__class__(shape=ret_shape, dtype=x.dtype)
 
     # merge non-target axes
-    if axis is not None:
-        p1 = [prod(x_shp[:axis])] if axis != 0 else []
-        p2 = [prod(x_shp[axis+1:])] if axis != len(x_shp) - 1 else []
-        global_size = p1 + [size] + p2
-        axis, ndim = len(p1), len(global_size)
+    p1 = [prod(x_shp[:axis])] if axis != 0 else []
+    p2 = [prod(x_shp[axis+1:])] if axis != len(x_shp) - 1 else []
+    global_size = tuple(p1 + [size] + p2)
+    axis, ndim = len(p1), len(global_size)
 
     a = [(f"grp_id_{i}" if i == axis else f"gl_id_{i}") for i in range(ndim)]
     b = [f"(gl_s_{i}/grp_s_{i})" for i in range(ndim)]
@@ -207,9 +207,9 @@ def reduce_op(name, x, axis=None, keepdims=True):
       if (lcl_id == 0) """ + f"C[{lcl2gl}] = B[0];" + """
     }""")
     local_mem = cl.LocalMemory((x.dtype().itemsize * size) // grp_size)
-    local_size = (grp_size if i == axis else 1 for i in range(ndim))
-    op(global_size, tuple(local_size), x.buffer, local_mem, ret.buffer)
-    if DEBUG: print(f"grp_size: {grp_size}, n_grps: {size // grp_size} retshape: {ret.shape}")
+    local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
+    if DEBUG: print(f"grp_size: {grp_size}, n_grps: {size // grp_size} global_size: {tuple(global_size)} local_size: {tuple(local_size)} retshape: {ret.shape}")
+    op(global_size, local_size, x.buffer, local_mem, ret.buffer)
     # inefficient recursive call
     if size // grp_size > 1:
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)

@@ -4,7 +4,7 @@ import numpy as np
 from core.ndarray import GPUArray
 
 
-def check_array(myarr, nparr, atol=0, rtol=1e-4):
+def check_array(myarr, nparr, atol=0, rtol=1e-3):
     assert myarr.shape == nparr.shape  # shape
     assert myarr.dtype == nparr.dtype  # dtype
     # strides
@@ -78,7 +78,7 @@ def test_storage():
     assert np.allclose(arr2.storage(), storage)
 
 def test_reduce_op():
-    shape = (4, 2**8)
+    shape = (2**3, 2**8, 2)
     nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
     arr = GPUArray(nparr)
     # test for c contiguous array
