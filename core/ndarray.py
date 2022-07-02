@@ -5,7 +5,7 @@ import pyopencl as cl
 
 from core.ops_gpu import cl_ctx, cl_queue, alloc_buffer
 from core.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
-
+from utils.math import prod
 
 
 def as_gpu_array(obj):
@@ -21,7 +21,7 @@ class GPUArray:
             data = np.asarray(data, dtype=dtype)
         shape = tuple(shape) if shape is not None else tuple(data.shape)
         self.buffer = alloc_buffer(shape, dtype, data)
-        self.strides = tuple(int(np.prod(shape[i+1:])) for i in range(len(shape)))
+        self.strides = tuple(prod(shape[i+1:]) for i in range(len(shape)))
         self.shape, self.dtype = shape, dtype
         self.__c_contiguous, self.__f_contiguous = True, False
         self.__reset_contiguousness()
@@ -62,13 +62,13 @@ class GPUArray:
     @classmethod
     def zeros(cls, shape, dtype=np.float32):
         inst = cls(shape=shape, dtype=dtype)
-        inst._fill(0.0)
+        inst.fill_(0)
         return inst
 
     @classmethod
     def ones(cls, shape, dtype=np.float32):
         inst = cls(shape=shape, dtype=dtype)
-        inst._fill(1.0)
+        inst.fill_(1)
         return inst
 
     @classmethod
@@ -84,18 +84,18 @@ class GPUArray:
         return contiguous_op(self)
 
     def reshape(self, shape):
-        assert np.prod(shape) == np.prod(self.shape)
-        inst = copy.copy(self)
+        # TODO: support -1 in shape
+        assert prod(shape) == prod(self.shape), f"Can not reshape {self.shape} to {shape}"
         if self.__c_contiguous or self.__f_contiguous:
+            inst = copy.copy(self)
             if self.__c_contiguous:
-                inst.strides = tuple(int(np.prod(shape[i+1:])) for i in range(len(shape)))
+                strides = (prod(shape[i+1:]) for i in range(len(shape)))
             else:
-                inst.strides = tuple(int(np.prod(shape[:i])) for i in range(len(shape)))
+                strides = (prod(shape[:i]) for i in range(len(shape)))
         else:
-            # return a copy
             inst = self.contiguous()
-            inst.strides = tuple(int(np.prod(shape[i+1:])) for i in range(len(shape)))
-        inst.shape = tuple(shape)
+            strides = (prod(shape[i+1:]) for i in range(len(shape)))
+        inst.shape, inst.strides = tuple(shape), tuple(strides)
         inst.__reset_contiguousness()
         return inst
 
@@ -116,7 +116,7 @@ class GPUArray:
         cl.enqueue_copy(cl_queue, data, self.buffer, is_blocking=True)
         return data
 
-    def _fill(self, value):
+    def fill_(self, value):
         cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size)
 
     def transpose(self, axes):
@@ -138,10 +138,18 @@ class GPUArray:
         return self.transpose(axes=axes)
 
     def sum(self, axis=None, keepdims=False):
+        if axis is not None:
+            assert self.__c_contiguous, "reduce_sum along axis requires c_contiguous!"
         return reduce_op("sum", self, axis=axis, keepdims=keepdims)
 
     def max(self, axis, keepdims):
+        if axis is not None:
+            assert self.__c_contiguous, "reduce_max along axis requires c_contiguous!"
         return reduce_op("max", self, axis=axis, keepdims=keepdims)
+
+    def __repr__(self):
+        return (f"<GPUArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} "
+                f"contiguous=({int(self.__c_contiguous)}, {int(self.__f_contiguous)})>")
 
 
 class CPUArray:

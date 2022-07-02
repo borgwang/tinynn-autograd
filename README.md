@@ -27,15 +27,21 @@ python3 examples/mnist/run.py
 ### TODOs
 
 - llops
-  - handle pyopencl array broadcasting
-  - sum along specify asix
+  - [x] handle pyopencl array broadcasting
+  - [x] reduce along axis
   - [x] contiguous array is still contiguous after transpose
-  - [] implement movement ops
-  - [] buffer instead of array
+  - [x] implement movement ops
+  - [x] buffer instead of array
+  - [x] reduce 4D array
+  - [] matmul supprot 4d array
 - mlops
   - layers/loss/optimizer
 - misc
-  - create gpu tensor directly
+  - [x] create gpu tensor directly
+  - [] initializer
+  - [] unify gpu_ops and ops
+- abbstraction
+  - wrap numpy array to CPUArray
 
 ### Design
 

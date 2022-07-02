@@ -2,7 +2,6 @@ from functools import lru_cache
 
 import numpy as np
 import pyopencl as cl
-import pyopencl.array as cl_array
 
 
 @lru_cache()
@@ -118,24 +117,6 @@ def pow_(ts1, ts2):
         ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
 
 
-def contiguous_transpose_op(ts):
-    from core.tensor import QUEUE
-    assert ts.values.flags.c_contiguous, "Array must be contiguous before transpose_op!"
-    length = np.prod(ts.values.shape)
-    values = cl_array.empty(QUEUE, (length,), dtype=np.float32)
-    op = cl_build("transpose_op", """
-    __kernel void transpose_op(const int M, const int N,
-        __global const float *A, __global float *B) {
-      const int i = get_global_id(0);
-      B[i] = A[(i % M) * N + i / M];
-    }
-    """)
-    # TODO: support 3D/4D transpose
-    M, N = np.int32(ts.values.shape[0]), np.int32(ts.values.shape[1])
-    op((length,), None, M, N, ts.values.data, values.data)
-    return values.reshape((N, M))
-
-
 def matmul_(ts1, ts2):
     values = ts1.values @ ts2.values
     def grad_fn_ts1(grad):
@@ -231,11 +212,11 @@ def log_(ts):
 
 def sum_(ts, axis, keepdims):
     values = ts.values.sum(axis, keepdims)
-    if axis is not None:  # TODO
+    if axis is not None:
+        # TODO: grad_fn for sum-along-axis op
         repeat = ts.values.shape[axis]
     def grad_fn(grad):
         if axis is None:
-            #return grad * cl_array.zeros(QUEUE, ts.shape, dtype=np.float32) + 1.0
             return grad * grad.__class__.ones(ts.shape)
         else:
             grad = np.expand_dims(grad, axis)

@@ -16,7 +16,6 @@ def check_array(myarr, nparr):
     # values
     assert np.allclose(myarr.numpy(), nparr)
 
-
 def test_resahpe():
     shape = (2, 3, 4)
     nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
@@ -33,7 +32,6 @@ def test_resahpe():
         check_array(arr.transpose((0, 2, 1)).reshape(shape),
                     nparr.transpose((0, 2, 1)).reshape(shape, order="A"))
 
-
 def test_contiguous():
     shape = (2, 3, 4)
     nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
@@ -48,7 +46,6 @@ def test_contiguous():
     nparr = np.ascontiguousarray(nparr)
     check_array(arr, nparr)
 
-
 def test_expand():
     shape = (3, 1, 1)
     nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
@@ -62,14 +59,12 @@ def test_expand():
     nparr_expand = np.tile(nparr, (1, 3, 3))
     assert np.allclose(arr_expand.numpy(), nparr_expand)
 
-
 def test_transpose():
     shape = (2, 3, 4)
     nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
     arr = GPUArray(nparr)
     check_array(arr.T, nparr.T)
     check_array(arr.transpose((0, 2, 1)), nparr.transpose((0, 2, 1)))
-
 
 def test_storage():
     shape = (2, 1, 3)
@@ -83,19 +78,28 @@ def test_storage():
     arr2 = arr.transpose((0, 2, 1))
     assert np.allclose(arr2.storage(), storage)
 
-
 def test_reduce_op():
-    shape = (2**8,)
+    shape = (4, 2**8)
     nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
     arr = GPUArray(nparr)
-    for _ in range(10):
-        check_array(arr.sum(), nparr.sum())
-    #check_array(arr.sum(axis=0), nparr.sum(axis=0))
-
+    # test for c contiguous array
+    check_array(arr.sum(), nparr.sum())
+    check_array(arr.sum(axis=1), nparr.sum(axis=1))
+    # test for 4d array
+    shape = (4, 2**8, 4, 2**4)
+    nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
+    arr = GPUArray(nparr)
+    check_array(arr.sum(), nparr.sum())
+    check_array(arr.sum(axis=0), nparr.sum(axis=0))
+    check_array(arr.sum(axis=3), nparr.sum(axis=3))
+    check_array(arr.sum(axis=1), nparr.sum(axis=1))
+    # TODO: test for nonconitguous array?
 
 def test_matmul_op():
-    pass
+    rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
+    nparr1, nparr2 = rnd((3, 4)), rnd((4, 3))
+    arr1, arr2 = GPUArray(nparr1), GPUArray(nparr2)
+    check_array(arr1@arr2, nparr1@nparr2)
+    check_array(arr1.T@arr2.T, nparr1.T@nparr2.T)
 
 
-def test_conv_op():
-    pass

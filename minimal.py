@@ -9,6 +9,7 @@ np.random.seed(0)
 
 from core.ndarray import GPUArray
 
+"""
 def check_array(myarr, nparr):
     assert myarr.shape == nparr.shape  # shape
     assert myarr.dtype == nparr.dtype  # dtype
@@ -27,6 +28,7 @@ arr = GPUArray(nparr)
 check_array(arr.sum(), nparr.sum())
 print("pass")
 sys.exit()
+"""
 
 BS = 2**8
 idim = 2**12

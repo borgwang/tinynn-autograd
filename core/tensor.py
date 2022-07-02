@@ -29,8 +29,6 @@ class Tensor:
 
         self.grad = None
         self.requires_grad = requires_grad
-        #if self.requires_grad:
-        #    self.zero_grad()
         self.dependency = dependency
         if self.dependency is None:
             self.dependency = []
@@ -192,6 +190,7 @@ class Tensor:
             grad_for_dep = dep["grad_fn"](grad)
             dep["tensor"].backward(grad_for_dep)
 
+    @profile
     def zero_grad(self):
         if self.grad is None:
             if self._gpu:
@@ -199,4 +198,4 @@ class Tensor:
             else:
                 self.grad = np.zeros(self.shape, dtype=np.float32)
         else:
-            self.grad *= 0.0
+            self.grad.fill_(0.0)

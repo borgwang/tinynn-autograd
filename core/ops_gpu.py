@@ -1,10 +1,17 @@
 from functools import lru_cache
 
+import os
+
 import numpy as np
 import pyopencl as cl
 
+
+from utils.math import prod
+
 import warnings
 warnings.filterwarnings("ignore")
+
+DEBUG = int(os.getenv("DEBUG", "0"))
 
 # init opencl
 cl_ctx, cl_queue = None, None
@@ -17,13 +24,14 @@ cl_queue = cl.CommandQueue(cl_ctx)
 
 @lru_cache()
 def cl_build(name, program):
-    #print(f"miss cache. build {name}")
+    if DEBUG: print(f"miss cache. build {name}")
+    if DEBUG: print(program)
     cl_kernel = cl.Program(cl_ctx, program).build().__getattr__(name)
     return lambda *args: cl_kernel(cl_queue, *args)
 
 
 def alloc_buffer(shape, dtype, hostbuf=None):
-    size = int(dtype().itemsize * np.prod(shape))
+    size = int(dtype().itemsize * prod(shape))
     flags = cl.mem_flags.READ_WRITE
     if hostbuf is not None:
         flags |= cl.mem_flags.COPY_HOST_PTR
@@ -52,7 +60,7 @@ def broadcast(a, b):
 def unary_op(name, a, ret=None):
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
-    op_mapping = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": ""}  # TODO: relu
+    code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": ""}  # TODO: relu
     unary_op = cl_build("unary_op", """
     __kernel void unary_op(""" +
     "".join([f"int a_s{i}, int res_s{i}, " for i in range(a.ndim)]) +
@@ -61,7 +69,7 @@ def unary_op(name, a, ret=None):
       "".join([f"int idx{i}=get_global_id({i}); res_i+=idx{i}*res_s{i}; a_i+=idx{i}*a_s{i};" for i in range(a.ndim)]) +
     """
       float a = A[a_i];
-      B[res_i] = """ + op_mapping[name] + """;
+      B[res_i] = """ + code_map[name] + """;
     }
     """)
     args = [np.int32(s) for ss in zip(a.strides, ret.strides) for s in ss]
@@ -73,7 +81,7 @@ def binary_op(name, a, b, ret=None):
     a, b = broadcast(a, b)
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
-    op_mapping = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "power(a,b)"}
+    code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "power(a,b)"}
     binary_op = cl_build("binary_op", """
     __kernel void binary_op(""" +
     "".join([f"int a_s{i}, int b_s{i}, int res_s{i}, " for i in range(a.ndim)]) +
@@ -82,7 +90,7 @@ def binary_op(name, a, b, ret=None):
       "".join([f"const int idx{i} = get_global_id({i}); res_i += idx{i}*res_s{i}; a_i += idx{i}*a_s{i}; b_i += idx{i}*b_s{i};" for i in range(a.ndim)]) +
       """
       float a = A[a_i], b = B[b_i];
-      C[res_i] = """ + op_mapping[name] + """;
+      C[res_i] = """ + code_map[name] + """;
     }
     """)
     args = [np.int32(s) for ss in zip(a.strides, b.strides, ret.strides) for s in ss]
@@ -95,8 +103,7 @@ def matmul_op(a, b, ret=None):
     ret_shape = list(a.shape)[:-1] + list(b.shape)[1:]
     if ret is None:
         ret = a.__class__(shape=ret_shape, dtype=a.dtype)
-    src = """
-    __kernel void matmul_op(const int M, const int N, const int K,
+    src = """__kernel void matmul_op(const int M, const int N, const int K,
         const int A_c_contig, const int B_c_contig,
         __global const float *A, __global const float *B, __global float *C) {
       int m = get_global_id(0), n = get_global_id(1);
@@ -108,12 +115,11 @@ def matmul_op(a, b, ret=None):
         acc += A[A_idx] * B[B_idx];
       }
       C[m * N + n] = acc;
-    }
-    """
+    }"""
     op = cl_build("matmul_op", src)
-    M = int(np.prod(list(a.shape)[:-1]))
+    M = prod(list(a.shape)[:-1])
     K = a.shape[-1]
-    N = int(np.prod(list(b.shape)[1:]))
+    N = prod(list(b.shape)[1:])
     op((M, N), None, *[np.int32(a) for a in [M, N, K, a.c_contiguous, b.c_contiguous]],
         a.buffer, b.buffer, ret.buffer)
     return ret
@@ -138,31 +144,40 @@ def contiguous_op(x):
     """
     op = cl_build("contiguous_op", src)
     args = sum([[np.int32(a), np.int32(b)] for a, b in zip(x.shape, x.strides)], [])
-    op((np.prod(x.shape),), None, *args, x.buffer, ret.buffer)
+    op((prod(x.shape),), None, *args, x.buffer, ret.buffer)
     return ret
 
 
-def reduce_op(name, x, ret=None, axis=None, keepdims=True):
-    # TODO: https://github.com/JimMadge/OpenCL-Reduction-Example/blob/master/reduction/reduction.cl
-    # - padding
-    # - handle uncontiguous input
-    # - 4D tensor reduction
-    x_shape = x.shape
+def reduce_op(name, x, axis=None, keepdims=True):
+    code_map = {"sum": "a+b", "max": "max(a,b)"}
+    x_shp = x.shape
     if axis is None:
-        axis, x_shape = 0, (np.prod(x.shape),)
-    ndim, length = len(x_shape), x_shape[axis]
-    grp_size = 2 ** [i for i in range(8, -1, -1) if length % (2**i) == 0][0]
-    n_groups = length // grp_size
-    if n_groups <= 1:
-        if keepdims:
-            ret_shape = tuple(d if i != axis else 1 for i, d in enumerate(x_shape))
+        axis, x_shp = 0, (prod(x.shape),)
+    size = x_shp[axis]
+
+    def cal_ret_shp(x_shp, axis, keepdims, grp_size):
+        if x_shp[axis] // grp_size <= 1:
+            if keepdims:
+                ret_shape = (d if i!=axis else 1 for i,d in enumerate(x_shp))
+            else:
+                ret_shape = (d for i,d in enumerate(x_shp) if i!=axis)
         else:
-            ret_shape = tuple(d for i, d in enumerate(x_shape) if i != axis)
-    else:
-        ret_shape = tuple(d // grp_size if i == axis else d for i, d in enumerate(x_shape))
-    if ret is None:
-        ret = x.__class__(shape=ret_shape, dtype=x.dtype)
-    op_mapping = {"sum": "a+b", "max": "max(a,b)"}
+            ret_shape = (d // grp_size if i == axis else d for i, d in enumerate(x_shp))
+        return tuple(ret_shape)
+
+    # occasionally failed when grp_size=256
+    grp_size = 2 ** [i for i in range(8, -1, -1) if size % (2**i) == 0][0]
+    assert (size & (size-1) == 0) and size != 0, f"size({size}) is not a power of 2."
+    ret_shp = cal_ret_shp(x_shp, axis, keepdims, grp_size)
+    ret = x.__class__(shape=ret_shp, dtype=x.dtype)
+
+    # merge non-target axes
+    if axis is not None:
+        p1 = [prod(x_shp[:axis])] if axis != 0 else []
+        p2 = [prod(x_shp[axis+1:])] if axis != len(x_shp) - 1 else []
+        global_size = p1 + [size] + p2
+        axis, ndim = len(p1), len(global_size)
+        if DEBUG: print(f"\nafter merge x_shp={global_size} axis={axis} ndim={ndim}")
 
     a = [(f"grp_id_{i}" if i == axis else f"gl_id_{i}") for i in range(ndim)]
     b = [f"(gl_s_{i}/grp_s_{i})" for i in range(ndim)]
@@ -173,32 +188,25 @@ def reduce_op(name, x, ret=None, axis=None, keepdims=True):
     c = ["*".join(b[i+1:]) for i in range(ndim-1)] + ["1"]
     gl2lcl = "+".join([f"{a_}*{c_}" for a_, c_ in zip(a, c)])
     op = cl_build("reduce_op", """
-    __kernel void reduce_op(
-        __global const float *A, __local float *B, __global float *C) {
+    __kernel void reduce_op(__global const float *A, __local float *B, __global float *C) {
       """ + "".join([
-          f"int gl_id_{i}=get_global_id({i});int gl_s_{i}=get_global_size({i});"
-          f"int grp_id_{i}=get_group_id({i});int grp_s_{i}=get_local_size({i});"
-              for i in range(ndim)]) +
-    f"int lcl_id=get_local_id({axis});" +
-    f"B[lcl_id] = A[{gl2lcl}];" + """
+          f"int gl_id_{i}=get_global_id({i});int gl_s_{i}=get_global_size({i});int grp_id_{i}=get_group_id({i});int grp_s_{i}=get_local_size({i});\n" for i in range(ndim)]) +
+    f"int lcl_id=get_local_id({axis}); B[lcl_id] = A[{gl2lcl}];" + """
       barrier(CLK_LOCAL_MEM_FENCE);
-      """ + f"for (int stride=grp_s_{axis}>>1; stride>0; stride>>=1)" +
-      """
-      {
+      """ + f"for (int stride=grp_s_{axis}>>1; stride>0; stride>>=1) {{" + """
         float a = B[lcl_id], b = B[lcl_id+stride];
         if (lcl_id < stride)
-          B[lcl_id] = """ + op_mapping[name] + """;
+          B[lcl_id] = """ + code_map[name] + """;
         barrier(CLK_LOCAL_MEM_FENCE);
       }
       if (lcl_id == 0) """ + f"C[{lcl2gl}] = B[0];" + """
     }""")
-    local_mem_size = int(x.dtype().itemsize * x_shape[axis]) // grp_size
-    local_mem = cl.LocalMemory(local_mem_size)
-    local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
-    op(x_shape, local_size, x.buffer, local_mem, ret.buffer)
-    print(f"grp_size: {grp_size}, n_groups: {n_groups} retshape: {ret.shape}")
-    print(f"!!!!!!!!!! {ret.numpy()}")
-    if n_groups > 1:
+    local_mem = cl.LocalMemory((x.dtype().itemsize * size) // grp_size)
+    local_size = (grp_size if i == axis else 1 for i in range(ndim))
+    op(global_size, tuple(local_size), x.buffer, local_mem, ret.buffer)
+    if DEBUG: print(f"grp_size: {grp_size}, n_grps: {size // grp_size} retshape: {ret.shape}")
+    # inefficient recursive call
+    if size // grp_size > 1:
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)
     return ret
 
