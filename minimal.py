@@ -9,26 +9,6 @@ np.random.seed(0)
 
 from core.ndarray import GPUArray
 
-"""
-def check_array(myarr, nparr):
-    assert myarr.shape == nparr.shape  # shape
-    assert myarr.dtype == nparr.dtype  # dtype
-    # strides
-    np_strides = tuple(s // myarr.dtype().itemsize for s in nparr.strides)
-    assert myarr.strides == np_strides
-    # contiguousness
-    assert myarr.c_contiguous == nparr.flags.c_contiguous
-    assert myarr.f_contiguous == nparr.flags.f_contiguous
-    # values
-    assert np.allclose(myarr.numpy(), nparr)
-
-shape = (2**8,)
-nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
-arr = GPUArray(nparr)
-check_array(arr.sum(), nparr.sum())
-print("pass")
-sys.exit()
-"""
 
 BS = 2**8
 idim = 2**12

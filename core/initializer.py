@@ -1,11 +1,8 @@
 import numpy as np
 import scipy.stats as stats
-import pyopencl.array as cl_array
-from pyopencl.clrandom import PhiloxGenerator as RNG
 
 from core.tensor import Tensor
-from core.tensor import CTX, QUEUE
-rng = RNG(CTX)
+from core.ndarray import GPUArray
 
 
 def get_fans(shape):
@@ -16,11 +13,11 @@ def get_fans(shape):
 
 class Initializer:
 
-    def __call__(self, shape, device="cpu"):
-        values = self.init(tuple(shape), device=device)
-        return Tensor(values, requires_grad=True, dtype=np.float32, gpu=(device=="gpu"))
+    def __call__(self, shape, dtype=np.float32, device="cpu"):
+        values = self.init(tuple(shape), dtype=dtype, device=device)
+        return Tensor(values, requires_grad=True, dtype=dtype)
 
-    def init(self, shape, device):
+    def init(self, shape, dtype, device):
         raise NotImplementedError
 
 
@@ -30,21 +27,11 @@ class NormalInit(Initializer):
         self._mean = mean
         self._std = std
 
-    def init(self, shape, device="cpu"):
+    def init(self, shape, dtype, device):
         if device == "cpu":
             return np.random.normal(loc=self._mean, scale=self._std, size=shape)
         elif device == "gpu":
-            pass
-            # TODO
-
-
-class TruncatedNormalInit(Initializer):
-
-    def __init__(self, mean=0.0, std=1.0):
-        self._tn = stats.truncnorm(- 2 * std, 2 * std, loc=mean, scale=std)
-
-    def init(self, shape):
-        return self._tn.rvs(size=shape)
+            pass  # TODO
 
 
 class UniformInit(Initializer):
@@ -53,7 +40,7 @@ class UniformInit(Initializer):
         self._a = a
         self._b = b
 
-    def init(self, shape):
+    def init(self, shape, dtype, device):
         return np.random.uniform(low=self._a, high=self._b, size=shape)
 
 
@@ -62,12 +49,10 @@ class ConstantInit(Initializer):
     def __init__(self, val):
         self._val = val
 
-    def init(self, shape, device):
-        if device == "cpu":
-            return np.full(shape=shape, fill_value=self._val, dtype=np.float32)
-        elif device == "gpu":
-            # TODO: slower than zero + value
-            return cl_array.empty(QUEUE, shape, dtype=np.float32).fill(self._val)
+    def init(self, shape, dtype, device):
+        inst = GPUArray.empty(shape, dtype) if device == "gpu" else np.empty(shape, dtype)
+        inst.fill(self._val)
+        return inst
 
 
 class ZerosInit(ConstantInit):
@@ -90,13 +75,13 @@ class XavierUniformInit(Initializer):
     def __init__(self, gain=1.0):
         self._gain = gain
 
-    def init(self, shape, device):
+    def init(self, shape, dtype, device):
         fan_in, fan_out = get_fans(shape)
         a = self._gain * np.sqrt(6.0 / (fan_in + fan_out))
         if device == "cpu":
-            return np.random.uniform(low=-a, high=a, size=shape).astype(np.float32)
+            return np.random.uniform(low=-a, high=a, size=shape).astype(dtype)
         elif device == "gpu":
-            return rng.uniform(a=-a, b=a, shape=shape, dtype=np.float32, cq=QUEUE)
+            return GPUArray.uniform(a=-a, b=a, shape=shape, dtype=dtype)
         else:
             raise ValueError(f"Invalid device type {device}")
 
@@ -114,10 +99,10 @@ class XavierNormalInit(Initializer):
     def __init__(self, gain=1.0):
         self._gain = gain
 
-    def init(self, shape):
+    def init(self, shape, dtype, device):
         fan_in, fan_out = get_fans(shape)
         std = self._gain * np.sqrt(2.0 / (fan_in + fan_out))
-        return np.random.normal(loc=0.0, scale=std, size=shape)
+        return np.random.normal(loc=0.0, scale=std, size=shape).astype(dtype)
 
 
 class HeUniformInit(Initializer):
@@ -133,10 +118,10 @@ class HeUniformInit(Initializer):
     def __init__(self, gain=1.0):
         self._gain = gain
 
-    def init(self, shape):
+    def init(self, shape, dtype, device):
         fan_in, _ = get_fans(shape)
         a = self._gain * np.sqrt(6.0 / fan_in)
-        return np.random.uniform(low=-a, high=a, size=shape)
+        return np.random.uniform(low=-a, high=a, size=shape).astype(dtype)
 
 
 class HeNormalInit(Initializer):
@@ -152,7 +137,7 @@ class HeNormalInit(Initializer):
     def __init__(self, gain=1.0):
         self._gain = gain
 
-    def init(self, shape):
+    def init(self, shape, dtype, device):
         fan_in, _ = get_fans(shape)
         std = self._gain * np.sqrt(2.0 / fan_in)
-        return np.random.normal(loc=0.0, scale=std, size=shape)
+        return np.random.normal(loc=0.0, scale=std, size=shape).astype(dtype)

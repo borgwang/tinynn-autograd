@@ -2,18 +2,16 @@ import runtime_path  # isort:skip
 
 import numpy as np
 from core.ndarray import GPUArray
+from core.ops_gpu import unary_op
 
 
-def check_array(myarr, nparr, atol=0, rtol=1e-3):
-    assert myarr.shape == nparr.shape  # shape
-    assert myarr.dtype == nparr.dtype  # dtype
-    # strides
+def check_array(myarr, nparr, atol=0, rtol=1e-4):
+    assert myarr.shape == nparr.shape
+    assert myarr.dtype == nparr.dtype
     np_strides = tuple(s // myarr.dtype().itemsize for s in nparr.strides)
     assert myarr.strides == np_strides
-    # contiguousness
     assert myarr.c_contiguous == nparr.flags.c_contiguous
     assert myarr.f_contiguous == nparr.flags.f_contiguous
-    # values
     assert np.allclose(myarr.numpy(), nparr, atol=atol, rtol=rtol)
 
 def test_resahpe():
@@ -127,3 +125,16 @@ def test_squeeze():
     nparr = rnd(shape)
     arr = GPUArray(nparr)
     check_array(arr.squeeze(), nparr.squeeze())
+
+def test_unary_op():
+    rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
+    shape = (2, 4, 5)
+    nparr = rnd(shape)
+    arr = GPUArray(nparr)
+    check_array(unary_op("sign", arr), np.sign(nparr).astype(np.float32))
+    check_array(unary_op("neg", arr), -nparr)
+    check_array(unary_op("log", arr+1e8), np.log(nparr+1e8))
+    check_array(unary_op("exp", arr), np.exp(nparr))
+    check_array(unary_op("relu", arr), nparr*(nparr>0))
+    check_array(unary_op("gt", arr, val=0), (nparr>0).astype(np.float32))
+

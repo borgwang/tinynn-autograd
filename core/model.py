@@ -51,12 +51,14 @@ class Model:
             all_grads.append(grad)
 
         # compute step
-        steps = self.optimizer.compute_step(all_grads, params)
+        self.optimizer.compute_step(all_grads, params)
 
+        """
         # apply grad
         for step, param in zip(steps, params):
             for k, v in param.items():
                 param[k] += step[k]
+        """
 
     def zero_grad(self):
         params = self.net.get_parameters()

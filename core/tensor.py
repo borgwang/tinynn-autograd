@@ -8,7 +8,6 @@ import core.gpu_ops as ops
 from core.ndarray import GPUArray
 import pyopencl as cl
 
-
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
         obj = Tensor(obj)
@@ -22,10 +21,10 @@ class Tensor:
                  requires_grad=False,
                  dependency=None,
                  dtype=np.float32):
-        gpu = isinstance(values, GPUArray)
-        self.values = values if gpu else np.asarray(values, dtype)
+        self._gpu = isinstance(values, GPUArray)
+        self.values = values if self._gpu else np.asarray(values, dtype)
+        self.dtype = dtype
         self._shape = self._values.shape
-        self._gpu = gpu
 
         self.grad = None
         self.requires_grad = requires_grad
@@ -38,7 +37,7 @@ class Tensor:
             return Tensor(values=GPUArray(self._values),
                           requires_grad=self.requires_grad,
                           dependency=self.dependency,
-                          dtype=self._values.dtype)
+                          dtype=self.dtype)
         return self
 
     def cpu(self):
@@ -144,7 +143,8 @@ class Tensor:
         return self
 
     def __len__(self):
-        return len(self.values)
+        assert self.shape, "Error getting length of a 0-d tensor"
+        return self.shape[0]
 
     def sum(self, axis=None, keepdims=False):
         return ops.sum_(self, axis=axis, keepdims=keepdims)
@@ -170,12 +170,19 @@ class Tensor:
     def clip(self, min_=None, max_=None):
         return ops.clip_(self, min_, max_)
 
+    def relu(self, inplace=False):
+        return ops.relu_(self, inplace)
+
+    def exp(self):
+        return ops.exp_(self)
+
+
     @property
     def T(self):
         return ops.transpose_(self, axes=None)
 
     def init_grad(self, shape, dtype, value=0.0):
-        grad = GPUArrya.empty(shpae, dtype) if self._gpu else np.empty(shape, dtype)
+        grad = GPUArray.empty(shape, dtype) if self._gpu else np.empty(shape, dtype)
         grad.fill(value)
         return grad
 
@@ -196,4 +203,4 @@ class Tensor:
         if self.grad is None:
             self.grad = self.init_grad(self.shape, self.dtype, value=0.0)
         else:
-            self.grad.fill_(0.0)
+            self.grad.fill(0.0)

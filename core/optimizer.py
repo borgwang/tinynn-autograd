@@ -3,36 +3,18 @@
 import numpy as np
 
 
-class BaseOptimizer(object):
+class BaseOptimizer:
 
     def __init__(self, lr, weight_decay):
+        self._t = 0
         self.lr = lr
         self.weight_decay = weight_decay
 
     def compute_step(self, grads, params):
-        # flatten all gradients into 1-dim array
-        flatten_grads = np.concatenate(
-            [np.ravel(v) for grad in grads for v in grad.values()])
-        # compute step according to derived class method
-        flatten_step = self._compute_step(flatten_grads)
-
-        p = 0 # linear block pointer
-        steps = list() # all layer of steps in restored shape
-        for param in params:
-            layer = dict() # one layer of steps in restored shape
-            for k, v in param.items():
-                # the number of elements in v
-                block = np.prod(v.shape)
-                # restore the shape for a block of flatten_step
-                _step = flatten_step[p:p+block].reshape(v.shape)
-                # apply weight_decay if specified
-                # _step -= self.weight_decay * v
-                # set the restored step to parameter key
-                layer[k] = _step
-                # count the block
-                p += block
-            steps.append(layer)
-        return steps
+        for i, (grad, param) in enumerate(zip(grads, params)):
+            for k, v in grad.items():
+                param[k].values += self._compute_step(v)
+        self._t += 1
 
     def _compute_step(self, grad):
         raise NotImplementedError
@@ -65,17 +47,15 @@ class Adam(BaseOptimizer):
         self._v = 0
 
     def _compute_step(self, grad):
-        self._t += 1
-
+        # TODO: BUGGY
         self._m += (1.0 - self._b1) * (grad - self._m)
-        self._v += (1.0 - self._b2) * (grad ** 2 - self._v)
+        self._v += (1.0 - self._b2) * (grad ** 2.0 - self._v)
 
         # bias correction
         _m = self._m / (1 - self._b1 ** self._t)
         _v = self._v / (1 - self._b2 ** self._t)
 
         step = -self.lr * _m / (_v ** 0.5 + self._eps)
-
         return step
 
 
@@ -105,7 +85,6 @@ class RMSProp(BaseOptimizer):
         self._ms += (1 - self._decay) * (grad ** 2 - self._ms)
         self._mom = self._momentum * self._mom + \
             self.lr * grad / (self._ms + self._eps) ** 0.5
-
         step = -self._mom
         return step
 

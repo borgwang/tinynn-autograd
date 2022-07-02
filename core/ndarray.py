@@ -3,7 +3,7 @@ import copy
 import numpy as np
 import pyopencl as cl
 
-from core.ops_gpu import cl_ctx, cl_queue, alloc_buffer
+from core.ops_gpu import cl_ctx, cl_queue, cl_rng, alloc_buffer
 from core.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
 from utils.math import prod
 
@@ -16,20 +16,21 @@ def as_gpu_array(obj):
 
 class GPUArray:
 
-    def __init__(self, data=None, shape=None, dtype=np.float32):
+    def __init__(self, data=None, shape=None, dtype=np.float32, buffer=None):
         if data is not None:
             data = np.asarray(data, dtype=dtype)
         shape = tuple(shape) if shape is not None else tuple(data.shape)
-        self.buffer = alloc_buffer(shape, dtype, data)
+        self.buffer = alloc_buffer(shape, dtype, data) if buffer is None else buffer
+
         self.strides = tuple(prod(shape[i+1:]) for i in range(len(shape)))
         self.shape, self.dtype = shape, dtype
         self.__c_contiguous, self.__f_contiguous = True, False
-        self.__reset_contiguousness()
+        self.__update_contiguousness()
         self.register_ops()
 
     def register_ops(self):
         cls = self.__class__
-        for op in ("add", "sub", "mul", "truediv"):
+        for op in ("add", "sub", "mul", "truediv", "pow"):
             setattr(cls, f"__{op}__",
                     (lambda op: lambda a, b: binary_op(op, a, as_gpu_array(b)))(op))
             setattr(cls, f"__i{op}__",
@@ -56,7 +57,7 @@ class GPUArray:
         return self.__f_contiguous
 
     @classmethod
-    def empty(cls, shape, dtype):
+    def empty(cls, shape, dtype=np.float32):
         return cls(shape=shape, dtype=dtype)
 
     @classmethod
@@ -74,6 +75,15 @@ class GPUArray:
     @classmethod
     def from_numpy(cls, arr):
         return cls(data=arr)
+
+    @classmethod
+    def uniform(cls, a, b, shape, dtype):
+        buffer = cl_rng.uniform(a=a, b=b, shape=shape, dtype=dtype, cq=cl_queue).data  # cheating
+        return cls(shape=shape, dtype=dtype, buffer=buffer)
+
+    @classmethod
+    def normal(cls):
+        pass
 
     def numpy(self):
         data = np.empty(self.shape, dtype=self.dtype)
@@ -100,7 +110,7 @@ class GPUArray:
             else:
                 strides = (prod(shape[:i]) for i in range(len(shape)))
             inst.shape, inst.strides = tuple(shape), tuple(strides)
-            inst.__reset_contiguousness()
+            inst.__update_contiguousness()
         else:
             inst = self.contiguous().reshape(shape)
         return inst
@@ -114,7 +124,7 @@ class GPUArray:
                 assert s1 == 1
             strides.append(0 if s1 < s2 else inst.strides[i])
         inst.shape, inst.strides = tuple(shape), tuple(strides)
-        inst.__reset_contiguousness()
+        inst.__update_contiguousness()
         return inst
 
     def squeeze(self, axis=None):
@@ -141,10 +151,10 @@ class GPUArray:
         inst = copy.copy(self)
         inst.strides = tuple(inst.strides[a] for a in axes)
         inst.shape = tuple(inst.shape[a] for a in axes)
-        inst.__reset_contiguousness()
+        inst.__update_contiguousness()
         return inst
 
-    def __reset_contiguousness(self):
+    def __update_contiguousness(self):
         strides = [self.strides[i] for i in range(self.ndim) if self.shape[i] != 1]
         sorted_strides = sorted(strides)
         self.__f_contiguous = sorted_strides == strides
@@ -165,11 +175,26 @@ class GPUArray:
             assert self.__c_contiguous, "reduce_max along axis requires c_contiguous!"
         return reduce_op("max", self, axis=axis, keepdims=keepdims)
 
+    def relu(self, inplace=False):
+        return unary_op("relu", self, ret=self if inplace else None)
+
+    def exp(self):
+        return unary_op("exp", self)
+
+    def log(self):
+        return unary_op("log", self)
+
+    def gt(self, value):
+        return unary_op("sign", self, val=value)
+
     def __repr__(self):
         return (f"<GPUArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} "
                 f"contiguous=({int(self.__c_contiguous)}, {int(self.__f_contiguous)})>")
 
-
 class CPUArray:
-    pass
 
+    def relu(self, inplace=False):
+        pass
+
+    def gt(self, value):
+        pass

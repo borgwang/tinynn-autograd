@@ -4,6 +4,7 @@ import os
 
 import numpy as np
 import pyopencl as cl
+from pyopencl.clrandom import PhiloxGenerator as RNG
 
 from utils.math import prod
 
@@ -18,6 +19,7 @@ if len(devices) == 0:
     devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
 cl_ctx = cl.Context(devices=devices)
 cl_queue = cl.CommandQueue(cl_ctx)  # TODO: create one queue for every device
+cl_rng = RNG(cl_ctx)
 
 
 @lru_cache()
@@ -41,7 +43,7 @@ def broadcast(a, b):
         return a, b
     for i, j in zip(a.shape, b.shape):
         if i != j and (i != 1) and (j != 1):
-            raise ValueError("Error broadcasting for {a.shape} and {b.shape}")
+            raise ValueError(f"Error broadcasting for {a.shape} and {b.shape}")
     ndim = max(a.ndim, b.ndim)
     if a.ndim != ndim:
         a = a.reshape([1] * (ndim - a.ndim) + list(a.shape))
@@ -55,10 +57,13 @@ def broadcast(a, b):
     return a, b
 
 
-def unary_op(name, a, ret=None):
+def unary_op(name, a, ret=None, **kwargs):
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
-    code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": ""}  # TODO: relu
+    code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)",
+            "relu": "max(a, (float)0.)", "sign": "sign(a)"}
+    if "val" in kwargs:
+        code_map["gt"] = f"(float)isgreater(a, (float){kwargs['val']})"
     unary_op = cl_build("unary_op", """
     __kernel void unary_op(""" +
     "".join([f"int a_s{i}, int res_s{i}, " for i in range(a.ndim)]) +
@@ -79,7 +84,7 @@ def binary_op(name, a, b, ret=None):
     a, b = broadcast(a, b)
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
-    code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "power(a,b)"}
+    code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)"}
     binary_op = cl_build("binary_op", """
     __kernel void binary_op(""" +
     "".join([f"int a_s{i}, int b_s{i}, int res_s{i}, " for i in range(a.ndim)]) +
