@@ -117,11 +117,16 @@ class GPUArray:
         inst.__reset_contiguousness()
         return inst
 
-    def squeeze(self, axis):
-        axis = self.ndim - 1 if axis == -1 else axis
-        if self.shape[axis] != 1:
+    def squeeze(self, axis=None):
+        if axis is None:
+            axis = [i for i, s in enumerate(self.shape) if s == 1]
+        elif isinstance(axis, int):
+            axis = [axis]
+        assert isinstance(axis, (list, tuple))
+        axis = [a if a != -1 else self.ndim - 1 for a in axis]
+        shape = [s for i, s in enumerate(self.shape) if i not in axis or self.shape[i] != 1]
+        if shape == self.shape:
             return self
-        shape = (*self.shape[:axis], *self.shape[axis+1:])
         return self.reshape(shape)
 
     def storage(self):

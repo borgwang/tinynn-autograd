@@ -114,3 +114,16 @@ def test_matmul_op():
         arr1, arr2 = GPUArray(nparr1), GPUArray(nparr2)
         check_array(arr1@arr2, nparr1@nparr2)
 
+def test_squeeze():
+    rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
+    shape = (1, 2, 3, 1)
+    nparr = rnd(shape)
+    arr = GPUArray(nparr)
+    check_array(arr.squeeze(), nparr.squeeze())
+    check_array(arr.squeeze(axis=0), nparr.squeeze(axis=0))
+    check_array(arr.squeeze(axis=-1), nparr.squeeze(axis=-1))
+    check_array(arr.squeeze(axis=(0, -1)), nparr.squeeze(axis=(0, -1)))
+    shape = (1, 1)
+    nparr = rnd(shape)
+    arr = GPUArray(nparr)
+    check_array(arr.squeeze(), nparr.squeeze())
