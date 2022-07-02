@@ -17,7 +17,7 @@ devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
 if len(devices) == 0:
     devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
 cl_ctx = cl.Context(devices=devices)
-cl_queue = cl.CommandQueue(cl_ctx)
+cl_queue = cl.CommandQueue(cl_ctx)  # TODO: create one queue for every device
 
 
 @lru_cache()
@@ -163,6 +163,7 @@ def reduce_op(name, x, axis=None, keepdims=True):
     if axis is None:
         axis, x_shp = 0, (prod(x.shape),)
     size = x_shp[axis]
+    assert (size & (size-1) == 0) and size != 0, f"Size({size}) is not a power of 2."
 
     def cal_ret_shape(x_shp, axis, keepdims, grp_size):
         if x_shp[axis] // grp_size <= 1:
@@ -172,9 +173,9 @@ def reduce_op(name, x, axis=None, keepdims=True):
             ret_shape = (d // grp_size if i == axis else d for i, d in enumerate(x_shp))
         return tuple(ret_shape)
 
-    if DEBUG: print("device max work group size: ", cl_queue.device.max_work_group_size)
-    grp_size = 2 ** [i for i in range(7,-1,-1) if size % (2**i) == 0][0]
-    assert (size & (size-1) == 0) and size != 0, f"Size({size}) is not a power of 2."
+    grp_size = cl_queue.device.max_work_group_size
+    while size % grp_size != 0:
+        grp_size //= 2
     ret_shape = cal_ret_shape(x_shp, axis, keepdims, grp_size)
     ret = x.__class__(shape=ret_shape, dtype=x.dtype)
 
@@ -206,12 +207,12 @@ def reduce_op(name, x, axis=None, keepdims=True):
       }
       if (lcl_id == 0) """ + f"C[{lcl2gl}] = B[0];" + """
     }""")
-    local_mem = cl.LocalMemory((x.dtype().itemsize * size) // grp_size)
+    local_mem = cl.LocalMemory(x.dtype().itemsize * grp_size)
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
-    if DEBUG: print(f"grp_size: {grp_size}, n_grps: {size // grp_size} global_size: {tuple(global_size)} local_size: {tuple(local_size)} retshape: {ret.shape}")
+    if DEBUG: print(f"grp_size: {grp_size}, n_grps: {size // grp_size}")
     op(global_size, local_size, x.buffer, local_mem, ret.buffer)
-    # inefficient recursive call
     if size // grp_size > 1:
+        # recursive reduce (inefficient)
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)
     return ret
 
