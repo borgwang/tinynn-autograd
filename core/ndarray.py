@@ -62,13 +62,13 @@ class GPUArray:
     @classmethod
     def zeros(cls, shape, dtype=np.float32):
         inst = cls(shape=shape, dtype=dtype)
-        inst.fill_(0)
+        inst.fill(0)
         return inst
 
     @classmethod
     def ones(cls, shape, dtype=np.float32):
         inst = cls(shape=shape, dtype=dtype)
-        inst.fill_(1)
+        inst.fill(1)
         return inst
 
     @classmethod
@@ -84,7 +84,14 @@ class GPUArray:
         return contiguous_op(self)
 
     def reshape(self, shape):
-        # TODO: support -1 in shape
+        if -1 in shape:
+            size = prod(self.shape)
+            assert shape.count(-1) <= 1, "Only one dimension can be inferred"
+            axis = shape.index(-1)
+            infer = prod([s for s in shape if s != -1])
+            assert size % infer == 0, f"Shape {shape} invalid for size {size}"
+            shape = (*shape[:axis], size // infer, *shape[axis+1:])
+
         assert prod(shape) == prod(self.shape), f"Can not reshape {self.shape} to {shape}"
         if self.__c_contiguous or self.__f_contiguous:
             inst = copy.copy(self)
@@ -92,11 +99,10 @@ class GPUArray:
                 strides = (prod(shape[i+1:]) for i in range(len(shape)))
             else:
                 strides = (prod(shape[:i]) for i in range(len(shape)))
+            inst.shape, inst.strides = tuple(shape), tuple(strides)
+            inst.__reset_contiguousness()
         else:
-            inst = self.contiguous()
-            strides = (prod(shape[i+1:]) for i in range(len(shape)))
-        inst.shape, inst.strides = tuple(shape), tuple(strides)
-        inst.__reset_contiguousness()
+            inst = self.contiguous().reshape(shape)
         return inst
 
     def expand(self, shape):
@@ -111,12 +117,19 @@ class GPUArray:
         inst.__reset_contiguousness()
         return inst
 
+    def squeeze(self, axis):
+        axis = self.ndim - 1 if axis == -1 else axis
+        if self.shape[axis] != 1:
+            return self
+        shape = (*self.shape[:axis], *self.shape[axis+1:])
+        return self.reshape(shape)
+
     def storage(self):
         data = np.empty((self.buffer.size // self.dtype().itemsize,), dtype=self.dtype)
         cl.enqueue_copy(cl_queue, data, self.buffer, is_blocking=True)
         return data
 
-    def fill_(self, value):
+    def fill(self, value):
         cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size)
 
     def transpose(self, axes):

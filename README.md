@@ -32,8 +32,9 @@ python3 examples/mnist/run.py
   - [x] contiguous array is still contiguous after transpose
   - [x] implement movement ops
   - [x] buffer instead of array
-  - [x] reduce 4D array
-  - [] matmul supprot 4d array
+  - [x] reduce support 4D array
+  - [x] matmul supprot 4d array
+  - [x] noncontiguous array
 - mlops
   - layers/loss/optimizer
 - misc

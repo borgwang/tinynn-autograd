@@ -5,12 +5,10 @@ import os
 import numpy as np
 import pyopencl as cl
 
-
 from utils.math import prod
 
 import warnings
 warnings.filterwarnings("ignore")
-
 DEBUG = int(os.getenv("DEBUG", "0"))
 
 # init opencl
@@ -23,10 +21,10 @@ cl_queue = cl.CommandQueue(cl_ctx)
 
 
 @lru_cache()
-def cl_build(name, program):
+def cl_build(name, program, options=tuple()):
     if DEBUG: print(f"miss cache. build {name}")
     if DEBUG: print(program)
-    cl_kernel = cl.Program(cl_ctx, program).build().__getattr__(name)
+    cl_kernel = cl.Program(cl_ctx, program).build(tuple(options)).__getattr__(name)
     return lambda *args: cl_kernel(cl_queue, *args)
 
 
@@ -99,35 +97,45 @@ def binary_op(name, a, b, ret=None):
     return ret
 
 
-def matmul_op(a, b, ret=None):
-    ret_shape = list(a.shape)[:-1] + list(b.shape)[1:]
-    if ret is None:
-        ret = a.__class__(shape=ret_shape, dtype=a.dtype)
-    src = """__kernel void matmul_op(const int M, const int N, const int K,
-        const int A_c_contig, const int B_c_contig,
+def matmul_op(a, b):
+    a_, b_ = a, b
+    if a.ndim == 1: a_ = a.reshape((1, *a.shape))
+    if b.ndim == 1: b_ = b.reshape((*b.shape, 1))
+    ret_shape = tuple((*a_.shape[:-1], b_.shape[-1]))
+
+    if a_.ndim > 3: a_ = a_.reshape((prod(a_.shape[:-2]), *a_.shape[2:]))
+    if b_.ndim > 3: b_ = b_.reshape((prod(b_.shape[:-2]), *b_.shape[2:]))
+    if a_.ndim == 2: a_ = a_.reshape((1, *a_.shape))
+    if b_.ndim == 2: b_ = b_.reshape((1, *b_.shape))
+    if a_.shape[0] != b_.shape[0]:  # broadcasting
+        assert a_.shape[0] == 1 or b_.shape[0] == 1
+        if a_.shape[0] == 1: a_ = a_.expand((b_.shape[0], *a_.shape[1:]))
+        if b_.shape[0] == 1: b_ = b_.expand((a_.shape[0], *b_.shape[1:]))
+
+    ret = a.__class__(shape=ret_shape, dtype=a.dtype)
+    src = """__kernel void matmul_op(int BS, int M, int N, int K,
+        """ + "".join(f"int A_s{i}, int B_s{i}," for i in range(3)) + """
         __global const float *A, __global const float *B, __global float *C) {
-      int m = get_global_id(0), n = get_global_id(1);
-      float acc = 0.0f;
-      int A_idx, B_idx;
+      int bs = get_global_id(0), m = get_global_id(1), n = get_global_id(2);
+      float acc = 0.0f; int A_idx, B_idx;
       for (int k=0; k<K; k++) {
-        A_idx = A_c_contig ? m*K + k : k*M + m;
-        B_idx = B_c_contig ? k*N + n : n*K + k;
+        A_idx = bs*A_s0+m*A_s1+k*A_s2; B_idx = bs*B_s0+k*B_s1+n*B_s2;
         acc += A[A_idx] * B[B_idx];
       }
-      C[m * N + n] = acc;
+      C[bs*M*N+m*N+n] = acc;
     }"""
     op = cl_build("matmul_op", src)
-    M = prod(list(a.shape)[:-1])
-    K = a.shape[-1]
-    N = prod(list(b.shape)[1:])
-    op((M, N), None, *[np.int32(a) for a in [M, N, K, a.c_contiguous, b.c_contiguous]],
-        a.buffer, b.buffer, ret.buffer)
+    BS, M, K, N = prod(a_.shape[:-2]), a_.shape[-2], a_.shape[-1], b_.shape[-1]
+    strides = [s for ss in zip(a_.strides, b_.strides) for s in ss]
+    args = [np.int32(a_) for a_ in [BS, M, N, K] + strides]
+    op((BS, M, N), None, *args, a_.buffer, b_.buffer, ret.buffer).wait()
+    if a.ndim == 1: ret = ret.squeeze(axis=0)
+    if b.ndim == 1: ret = ret.squeeze(axis=-1)
     return ret
 
 
 def contiguous_op(x):
-    if not x.ndim:
-        return x
+    if not x.ndim: return x
     ret = x.__class__(shape=x.shape, dtype=x.dtype)
     args = "".join([f"int a{i},int b{i}," for i in range(x.ndim)])
     def_strides = ";".join([f"int _s{i}="+"*".join(f"a{j}" for j in range(i+1, x.ndim))
@@ -143,7 +151,7 @@ def contiguous_op(x):
     }
     """
     op = cl_build("contiguous_op", src)
-    args = sum([[np.int32(a), np.int32(b)] for a, b in zip(x.shape, x.strides)], [])
+    args = [np.int32(s) for ss in zip(x.shape, x.strides) for s in ss]
     op((prod(x.shape),), None, *args, x.buffer, ret.buffer)
     return ret
 
@@ -155,7 +163,7 @@ def reduce_op(name, x, axis=None, keepdims=True):
         axis, x_shp = 0, (prod(x.shape),)
     size = x_shp[axis]
 
-    def cal_ret_shp(x_shp, axis, keepdims, grp_size):
+    def cal_ret_shape(x_shp, axis, keepdims, grp_size):
         if x_shp[axis] // grp_size <= 1:
             if keepdims:
                 ret_shape = (d if i!=axis else 1 for i,d in enumerate(x_shp))
@@ -165,11 +173,10 @@ def reduce_op(name, x, axis=None, keepdims=True):
             ret_shape = (d // grp_size if i == axis else d for i, d in enumerate(x_shp))
         return tuple(ret_shape)
 
-    # occasionally failed when grp_size=256
     grp_size = 2 ** [i for i in range(8, -1, -1) if size % (2**i) == 0][0]
     assert (size & (size-1) == 0) and size != 0, f"size({size}) is not a power of 2."
-    ret_shp = cal_ret_shp(x_shp, axis, keepdims, grp_size)
-    ret = x.__class__(shape=ret_shp, dtype=x.dtype)
+    ret_shape = cal_ret_shape(x_shp, axis, keepdims, grp_size)
+    ret = x.__class__(shape=ret_shape, dtype=x.dtype)
 
     # merge non-target axes
     if axis is not None:
@@ -190,8 +197,8 @@ def reduce_op(name, x, axis=None, keepdims=True):
     op = cl_build("reduce_op", """
     __kernel void reduce_op(__global const float *A, __local float *B, __global float *C) {
       """ + "".join([
-          f"int gl_id_{i}=get_global_id({i});int gl_s_{i}=get_global_size({i});int grp_id_{i}=get_group_id({i});int grp_s_{i}=get_local_size({i});\n" for i in range(ndim)]) +
-    f"int lcl_id=get_local_id({axis}); B[lcl_id] = A[{gl2lcl}];" + """
+          f"int gl_id_{i}=get_global_id({i});int gl_s_{i}=get_global_size({i});int grp_id_{i}=get_group_id({i});int grp_s_{i}=get_local_size({i});\n" for i in range(ndim)]) + """
+    """ + f"int lcl_id=get_local_id({axis}); B[lcl_id] = A[{gl2lcl}];" + """
       barrier(CLK_LOCAL_MEM_FENCE);
       """ + f"for (int stride=grp_s_{axis}>>1; stride>0; stride>>=1) {{" + """
         float a = B[lcl_id], b = B[lcl_id+stride];

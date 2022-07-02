@@ -174,13 +174,15 @@ class Tensor:
     def T(self):
         return ops.transpose_(self, axes=None)
 
+    def init_grad(self, shape, dtype, value=0.0):
+        grad = GPUArrya.empty(shpae, dtype) if self._gpu else np.empty(shape, dtype)
+        grad.fill(value)
+        return grad
+
     def backward(self, grad=None):
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         if grad is None:
-            if self._gpu:
-                grad = GPUArray.ones(self.shape, dtype=np.float32)
-            else:
-                grad = np.ones(self.shape, dtype=np.float32)
+            grad = self.init_grad(self.shape, self.dtype, value=1.0)
         # zero grad if needed
         if self.requires_grad and self.grad is None:
             self.zero_grad()
@@ -190,12 +192,8 @@ class Tensor:
             grad_for_dep = dep["grad_fn"](grad)
             dep["tensor"].backward(grad_for_dep)
 
-    @profile
     def zero_grad(self):
         if self.grad is None:
-            if self._gpu:
-                self.grad = GPUArray.zeros(self.shape, dtype=np.float32)
-            else:
-                self.grad = np.zeros(self.shape, dtype=np.float32)
+            self.grad = self.init_grad(self.shape, self.dtype, value=0.0)
         else:
             self.grad.fill_(0.0)
