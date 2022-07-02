@@ -129,7 +129,7 @@ def matmul_op(a, b):
     BS, M, K, N = prod(a_.shape[:-2]), a_.shape[-2], a_.shape[-1], b_.shape[-1]
     strides = [s for ss in zip(a_.strides, b_.strides) for s in ss]
     args = [np.int32(a_) for a_ in [BS, M, N, K] + strides]
-    op((BS, M, N), None, *args, a_.buffer, b_.buffer, ret.buffer).wait()
+    op((BS, M, N), None, *args, a_.buffer, b_.buffer, ret.buffer)
     if a.ndim == 1: ret = ret.squeeze(axis=0)
     if b.ndim == 1: ret = ret.squeeze(axis=-1)
     return ret
@@ -172,7 +172,6 @@ def reduce_op(name, x, axis=None, keepdims=True):
             ret_shape = (d // grp_size if i == axis else d for i, d in enumerate(x_shp))
         return tuple(ret_shape)
 
-    # TODO: grp_size=256 raise error in AMD device
     grp_size = 2 ** [i for i in range(8,-1,-1) if size % (2**i) == 0][0]
     assert (size & (size-1) == 0) and size != 0, f"Size({size}) is not a power of 2."
     ret_shape = cal_ret_shape(x_shp, axis, keepdims, grp_size)
