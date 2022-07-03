@@ -40,6 +40,59 @@ class GPUArray:
         setattr(cls, f"__matmul__", lambda a, b: matmul_op(a, as_gpu_array(b)))
         setattr(cls, f"__neg__", lambda a: unary_op("neg", a))
 
+    """
+    def __matmul__(a, b):
+        return matmul_op(a, as_gpu_array(b))
+
+    def __neg__(a):
+        return unary_op("neg", a)
+
+    def __add__(a, b):
+        return binary_op("add", a, as_gpu_array(b))
+
+    def __iadd__(a, b):
+        return binary_op("add", a, as_gpu_array(b), ret=a)
+
+    def __radd__(a, b):
+        return binary_op("add", as_gpu_array(b), a)
+
+    def __sub__(a, b):
+        return binary_op("sub", a, as_gpu_array(b))
+
+    def __isub__(a, b):
+        return binary_op("sub", a, as_gpu_array(b), ret=a)
+
+    def __rsub__(a, b):
+        return binary_op("sub", as_gpu_array(b), a)
+
+    def __mul__(a, b):
+        return binary_op("mul", a, as_gpu_array(b))
+
+    def __imul__(a, b):
+        return binary_op("mul", a, as_gpu_array(b), ret=a)
+
+    def __rmul__(a, b):
+        return binary_op("mul", as_gpu_array(b), a)
+
+    def __truediv__(a, b):
+        return binary_op("truediv", a, as_gpu_array(b))
+
+    def __itruediv__(a, b):
+        return binary_op("truediv", a, as_gpu_array(b), ret=a)
+
+    def __rtruediv__(a, b):
+        return binary_op("truediv", as_gpu_array(b), a)
+
+    def __pow__(a, b):
+        return binary_op("pow", a, as_gpu_array(b))
+
+    def __ipow__(a, b):
+        return binary_op("pow", a, as_gpu_array(b), ret=a)
+
+    def __rpow__(a, b):
+        return binary_op("pow", as_gpu_array(b), a)
+    """
+
     @property
     def size(self):
         return self.buffer.size
@@ -166,13 +219,11 @@ class GPUArray:
         return self.transpose(axes=axes)
 
     def sum(self, axis=None, keepdims=False):
-        if axis is not None:
-            assert self.__c_contiguous, "reduce_sum along axis requires c_contiguous!"
+        if axis is not None: assert self.__c_contiguous, "reduce_sum along axis requires c_contiguous!"
         return reduce_op("sum", self, axis=axis, keepdims=keepdims)
 
     def max(self, axis=None, keepdims=False):
-        if axis is not None:
-            assert self.__c_contiguous, "reduce_max along axis requires c_contiguous!"
+        if axis is not None: assert self.__c_contiguous, "reduce_max along axis requires c_contiguous!"
         return reduce_op("max", self, axis=axis, keepdims=keepdims)
 
     def relu(self, inplace=False):

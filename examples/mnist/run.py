@@ -42,7 +42,6 @@ def prepare_dataset(data_dir):
         return pickle.load(f, encoding="latin1")
 
 
-@profile
 def main(args):
     if args.seed >= 0:
         random_seed(args.seed);
@@ -58,13 +57,11 @@ def main(args):
     test_y = Tensor(test_y)
 
     net = Net([
-        Dense(200),
+        Dense(256),
         ReLU(),
-        Dense(100),
+        Dense(128),
         ReLU(),
-        Dense(70),
-        ReLU(),
-        Dense(30),
+        Dense(64),
         ReLU(),
         Dense(10)
     ]).gpu()
@@ -91,7 +88,6 @@ def main(args):
         res = evaluator.evaluate(test_pred_idx, test_y_idx)
         print(res)
         model.set_phase("TRAIN")
-        break
 
 
 if __name__ == "__main__":

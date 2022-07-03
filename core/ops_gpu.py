@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 import os
+import time
 
 import numpy as np
 import pyopencl as cl
@@ -18,7 +19,7 @@ devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
 if len(devices) == 0:
     devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
 cl_ctx = cl.Context(devices=devices)
-cl_queue = cl.CommandQueue(cl_ctx, device=devices[1])  # TODO: create one queue for every device
+cl_queue = cl.CommandQueue(cl_ctx)  # TODO: create one queue for every device
 cl_rng = RNG(cl_ctx)
 
 
@@ -178,7 +179,8 @@ def reduce_op(name, x, axis=None, keepdims=True):
         return tuple(n_grps if i == axis else d for i, d in enumerate(x_shp))
 
     grp_size = 2
-    while grp_size != cl_queue.device.max_work_group_size and grp_size < size:
+    max_work_group_size = cl_queue.device.max_work_group_size
+    while grp_size != max_work_group_size and grp_size < size:
         grp_size *= 2
     n_grps = (size + grp_size - 1) // grp_size
     ret_shape = cal_ret_shape(x_shp, axis, keepdims, grp_size, n_grps)
@@ -205,7 +207,6 @@ def reduce_op(name, x, axis=None, keepdims=True):
       """ + "".join([f"int gl_id_{i}=get_global_id({i});int gl_s_{i}=get_global_size({i});int grp_id_{i}=get_group_id({i});int grp_s_{i}=get_local_size({i});\n" for i in range(ndim)]) + """
     """ + f"int lcl_id=get_local_id({axis});" + """
     """ + f"B[lcl_id] = gl_id_{axis}<size?A[{gl2lcl}-{offset}]:{padval_map[name]};" + """
-      //printf("%d %d\\n", gl_id_0, size);
       barrier(CLK_LOCAL_MEM_FENCE);
       """ + f"for (int stride=grp_s_{axis}>>1; stride>0; stride>>=1) {{" + """
         float a = B[lcl_id], b = B[lcl_id+stride];
@@ -216,8 +217,9 @@ def reduce_op(name, x, axis=None, keepdims=True):
     }""")
     local_mem = cl.LocalMemory(x.dtype().itemsize * grp_size)
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
-    if DEBUG: print(f"[DDEBUG] ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
+    if DEBUG: ts = time.time()
     op(global_size, local_size, np.int32(size), x.buffer, local_mem, ret.buffer)
+    if DEBUG: print(f"[DDEBUG] x_shp: {x_shp} ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset} cost: {time.time() - ts}")
     if n_grps > 1:
         # recursive reduce (inefficient)
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)

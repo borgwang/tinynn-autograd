@@ -1,9 +1,4 @@
 from functools import reduce
 
-import numpy as np
-
-
-def prod(data, dtype=int):
-    return np.prod(data, dtype=dtype)
-
-
+def prod(data):
+    return int(reduce(lambda a,b: a*b, data, 1))

@@ -33,7 +33,6 @@ def add_(ts1, ts2):
             if dim == 1:
                 grad = grad.sum(axis=i, keepdims=True)
         return grad
-
     def grad_fn_ts2(grad):
         for _ in range(grad.ndim - ts2.values.ndim):
             grad = grad.sum(axis=0)
@@ -54,10 +53,6 @@ def mul_(ts1, ts2):
 
 def div_(ts1, ts2):
     values = ts1.values / ts2.values
-
-    # c = a / b
-    # D_c / D_a = 1 / b
-    # D_c / D_b = -a / b**2
     def grad_fn_ts1(grad):
         grad = grad / ts2.values
         for _ in range(grad.ndim - ts1.values.ndim):

@@ -11,9 +11,12 @@ class SoftmaxCrossEntropyLoss(Loss):
         m = logits.shape[0]
         #exps = (logits - logits.max(axis=1, keepdims=True)).exp()
         exps = logits.exp()
-        p = exps / exps.sum()
-        nll = -((p * labels).sum(axis=1).log())
-        return nll.sum() / m
+        expsum = exps.sum()
+        p = exps / expsum
+        l = (p * labels).sum(axis=1)
+        nll = -l.log()
+        ret = nll.sum() / m
+        return ret
 
 
 class SigmoidCrossEntropy(Loss):
