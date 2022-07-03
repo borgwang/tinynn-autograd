@@ -18,7 +18,7 @@ devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
 if len(devices) == 0:
     devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
 cl_ctx = cl.Context(devices=devices)
-cl_queue = cl.CommandQueue(cl_ctx)  # TODO: create one queue for every device
+cl_queue = cl.CommandQueue(cl_ctx, device=devices[1])  # TODO: create one queue for every device
 cl_rng = RNG(cl_ctx)
 
 

@@ -14,10 +14,10 @@ import numpy as np
 from core.evaluator import AccEvaluator
 from core.layers import Dense
 from core.layers import ReLU
-from core.losses import SoftmaxCrossEntropyLoss, SigmoidCrossEntropy
+from core.losses import SoftmaxCrossEntropyLoss
 from core.model import Model
 from core.nn import Net
-from core.optimizer import Adam
+from core.optimizer import Adam, SGD
 from core.tensor import Tensor
 from utils.data_iterator import BatchIterator
 from utils.downloader import download_url
@@ -42,6 +42,7 @@ def prepare_dataset(data_dir):
         return pickle.load(f, encoding="latin1")
 
 
+@profile
 def main(args):
     if args.seed >= 0:
         random_seed(args.seed);
@@ -53,43 +54,44 @@ def main(args):
 
     train_x = Tensor(train_x)
     train_y = Tensor(train_y)
-    test_x = Tensor(test_x)
+    test_x = Tensor(test_x).gpu()
     test_y = Tensor(test_y)
 
     net = Net([
         Dense(200),
         ReLU(),
-        Dense(1)
+        Dense(100),
+        ReLU(),
+        Dense(70),
+        ReLU(),
+        Dense(30),
+        ReLU(),
+        Dense(10)
     ]).gpu()
 
-    model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=Adam(lr=args.lr))
+    model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=SGD(lr=args.lr))
     loss_layer = SoftmaxCrossEntropyLoss()
-    loss_layer = SigmoidCrossEntropy()
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()
-    loss_list = list()
     for epoch in range(args.num_ep):
         t_start = time.time()
         for batch in iterator(train_x, train_y):
             model.zero_grad()
             x, y = batch.inputs.gpu(), batch.targets.gpu()
-            print(len(x))
             pred = model.forward(x)
             loss = loss_layer.loss(pred, y)
             loss.backward()
             model.step()
-            loss_list.append(loss.values)
-            print(loss.cpu())
-            break
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
         # evaluate
         model.set_phase("TEST")
-        test_pred = model.forward(test_x)
+        test_pred = model.forward(test_x).cpu()
         test_pred_idx = np.argmax(test_pred, axis=1)
         test_y_idx = test_y.values
         res = evaluator.evaluate(test_pred_idx, test_y_idx)
         print(res)
         model.set_phase("TRAIN")
+        break
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ class BaseOptimizer:
         for i, (grad, param) in enumerate(zip(grads, params)):
             for k, v in grad.items():
                 param[k].values += self._compute_step(v)
-        self._t += 1
+        #self._t += 1
 
     def _compute_step(self, grad):
         raise NotImplementedError
@@ -47,6 +47,7 @@ class Adam(BaseOptimizer):
         self._v = 0
 
     def _compute_step(self, grad):
+        # TODO: fix _m/_v shape
         self._m += (1.0 - self._b1) * (grad - self._m)
         self._v += (1.0 - self._b2) * (grad ** 2.0 - self._v)
 

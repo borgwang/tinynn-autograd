@@ -175,16 +175,13 @@ def log_(ts):
 
 def sum_(ts, axis, keepdims):
     values = ts.values.sum(axis, keepdims)
-    if axis is not None:
-        # TODO: grad_fn for sum-along-axis op
-        repeat = ts.values.shape[axis]
     def grad_fn(grad):
         if axis is None:
             return grad * grad.__class__.ones(ts.shape)
         else:
-            grad = np.expand_dims(grad, axis)
-            grad = np.repeat(grad, repeat, axis)
-        return grad
+            if not keepdims:
+                grad = grad.reshape((*ts.shape[:axis],1,*ts.shape[axis+1:]))
+            return grad.expand(ts.shape)
     return build_unary_ops_tensor(ts, grad_fn, values)
 
 def transpose_(ts, axes=None):

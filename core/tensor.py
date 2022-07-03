@@ -176,7 +176,6 @@ class Tensor:
     def exp(self):
         return ops.exp_(self)
 
-
     @property
     def T(self):
         return ops.transpose_(self, axes=None)
