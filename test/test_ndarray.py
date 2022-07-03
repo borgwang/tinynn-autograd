@@ -4,14 +4,17 @@ import numpy as np
 from core.ndarray import GPUArray
 from core.ops_gpu import unary_op
 
+np.random.seed(0)
 
-def check_array(myarr, nparr, atol=0, rtol=1e-4):
+def check_array(myarr, nparr, atol=0, rtol=1e-4, ignore=()):
     assert myarr.shape == nparr.shape
     assert myarr.dtype == nparr.dtype
-    np_strides = tuple(s // myarr.dtype().itemsize for s in nparr.strides)
-    assert myarr.strides == np_strides
-    assert myarr.c_contiguous == nparr.flags.c_contiguous
-    assert myarr.f_contiguous == nparr.flags.f_contiguous
+    if "stride" not in ignore:
+        np_strides = tuple(s // myarr.dtype().itemsize for s in nparr.strides)
+        assert myarr.strides == np_strides
+    if "contig" not in ignore:
+        assert myarr.c_contiguous == nparr.flags.c_contiguous
+        assert myarr.f_contiguous == nparr.flags.f_contiguous
     assert np.allclose(myarr.numpy(), nparr, atol=atol, rtol=rtol)
 
 def test_resahpe():
@@ -75,22 +78,7 @@ def test_storage():
     arr2 = arr.transpose((0, 2, 1))
     assert np.allclose(arr2.storage(), storage)
 
-def test_reduce_op():
-    shape = (2**3, 2**8, 2)
-    nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
-    arr = GPUArray(nparr)
-    # test for c contiguous array
-    check_array(arr.sum(), nparr.sum())
-    check_array(arr.sum(axis=1), nparr.sum(axis=1))
-    # test for 4d array
-    shape = (4, 2**8, 4, 2**4)
-    nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
-    arr = GPUArray(nparr)
-    check_array(arr.sum(), nparr.sum())
-    check_array(arr.sum(axis=0), nparr.sum(axis=0))
-    check_array(arr.sum(axis=3), nparr.sum(axis=3))
-    check_array(arr.sum(axis=1), nparr.sum(axis=1))
-    # TODO: test for nonconitguous array?
+
 
 def test_matmul_op():
     rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
@@ -137,4 +125,21 @@ def test_unary_op():
     check_array(unary_op("exp", arr), np.exp(nparr))
     check_array(unary_op("relu", arr), nparr*(nparr>0))
     check_array(unary_op("gt", arr, val=0), (nparr>0).astype(np.float32))
+
+def test_reduce_op():
+    for name in ("sum", "max"):
+        for shape in [
+                (1,),
+                (2**6+1,),
+                (2**6, 2**6+1),
+                (2**6, 2**6+1, 2, 2),
+                (1, 1, 1, 1),
+            ]:
+            nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
+            arr = GPUArray(nparr)
+            op1, op2 = getattr(arr, name), getattr(nparr, name)
+            check_array(op1(), op2())
+            for axis in range(nparr.ndim):
+                check_array(op1(axis=axis), op2(axis=axis))
+                check_array(op1(axis=axis, keepdims=True), op2(axis=axis, keepdims=True), ignore=("stride"))
 

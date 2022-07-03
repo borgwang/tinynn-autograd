@@ -47,7 +47,6 @@ class Adam(BaseOptimizer):
         self._v = 0
 
     def _compute_step(self, grad):
-        # TODO: BUGGY
         self._m += (1.0 - self._b1) * (grad - self._m)
         self._v += (1.0 - self._b2) * (grad ** 2.0 - self._v)
 

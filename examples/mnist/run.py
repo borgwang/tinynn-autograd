@@ -17,7 +17,7 @@ from core.layers import ReLU
 from core.losses import SoftmaxCrossEntropyLoss, SigmoidCrossEntropy
 from core.model import Model
 from core.nn import Net
-from core.optimizer import Adam, SGD
+from core.optimizer import Adam
 from core.tensor import Tensor
 from utils.data_iterator import BatchIterator
 from utils.downloader import download_url
@@ -49,8 +49,8 @@ def main(args):
     train_set, valid_set, test_set = prepare_dataset(args.data_dir)
     train_x, train_y = train_set
     test_x, test_y = test_set
-    train_y = (train_y % 2).reshape((-1, 1))
-    test_y = (test_y % 2).reshape((-1, 1))
+    train_y = get_one_hot(train_y, 10)
+
     train_x = Tensor(train_x)
     train_y = Tensor(train_y)
     test_x = Tensor(test_x)
@@ -62,8 +62,8 @@ def main(args):
         Dense(1)
     ]).gpu()
 
-    model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=SGD(lr=args.lr))
-    #loss_layer = SoftmaxCrossEntropyLoss()
+    model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=Adam(lr=args.lr))
+    loss_layer = SoftmaxCrossEntropyLoss()
     loss_layer = SigmoidCrossEntropy()
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()
@@ -73,11 +73,14 @@ def main(args):
         for batch in iterator(train_x, train_y):
             model.zero_grad()
             x, y = batch.inputs.gpu(), batch.targets.gpu()
+            print(len(x))
             pred = model.forward(x)
             loss = loss_layer.loss(pred, y)
             loss.backward()
             model.step()
             loss_list.append(loss.values)
+            print(loss.cpu())
+            break
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
         # evaluate
         model.set_phase("TEST")

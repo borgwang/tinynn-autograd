@@ -33,6 +33,7 @@ python3 examples/mnist/run.py
   - [x] implement movement ops
   - [x] buffer instead of array
   - [x] reduce support 4D array
+  - [x] reduction when size is not power of 2
   - [x] matmul supprot 4d array
   - [x] noncontiguous array
 - mlops

@@ -24,8 +24,8 @@ cl_rng = RNG(cl_ctx)
 
 @lru_cache()
 def cl_build(name, program, options=tuple()):
-    if DEBUG: print(f"miss cache. build {name}")
-    if DEBUG: print(program)
+    if DEBUG: print(f"[DEBUG] miss cache. build {name}")
+    if DEBUG: print(f"[DEBUG] program {name}: \n {program}")
     cl_kernel = cl.Program(cl_ctx, program).build(tuple(options)).__getattr__(name)
     return lambda *args: cl_kernel(cl_queue, *args)
 
@@ -164,59 +164,61 @@ def contiguous_op(x):
 
 def reduce_op(name, x, axis=None, keepdims=True):
     code_map = {"sum": "a+b", "max": "max(a,b)"}
+    padval_map = {"sum": "0.0f", "max": "-INFINITY"}
     x_shp = x.shape
     if axis is None:
         axis, x_shp = 0, (prod(x.shape),)
     size = x_shp[axis]
-    assert (size & (size-1) == 0) and size != 0, f"Size({size}) is not a power of 2."
 
-    def cal_ret_shape(x_shp, axis, keepdims, grp_size):
-        if x_shp[axis] // grp_size <= 1:
+    def cal_ret_shape(x_shp, axis, keepdims, grp_size, n_grps):
+        if n_grps <= 1:
             ret_shape = [d for i, d in enumerate(x_shp) if i != axis]
             if keepdims: ret_shape.insert(axis, 1)
-        else:
-            ret_shape = (d // grp_size if i == axis else d for i, d in enumerate(x_shp))
-        return tuple(ret_shape)
+            return tuple(ret_shape)
+        return tuple(n_grps if i == axis else d for i, d in enumerate(x_shp))
 
-    grp_size = cl_queue.device.max_work_group_size
-    while size % grp_size != 0:
-        grp_size //= 2
-    ret_shape = cal_ret_shape(x_shp, axis, keepdims, grp_size)
+    grp_size = 2
+    while grp_size != cl_queue.device.max_work_group_size and grp_size < size:
+        grp_size *= 2
+    n_grps = (size + grp_size - 1) // grp_size
+    ret_shape = cal_ret_shape(x_shp, axis, keepdims, grp_size, n_grps)
     ret = x.__class__(shape=ret_shape, dtype=x.dtype)
 
     # merge non-target axes
-    p1 = [prod(x_shp[:axis])] if axis != 0 else []
-    p2 = [prod(x_shp[axis+1:])] if axis != len(x_shp) - 1 else []
-    global_size = tuple(p1 + [size] + p2)
+    p1 = [prod(x_shp[:axis])] if axis!=0 else []
+    p2 = [prod(x_shp[axis+1:])] if axis!=len(x_shp)-1 else []
+    global_size = (*p1, grp_size*n_grps, *p2)
     axis, ndim = len(p1), len(global_size)
 
-    a = [(f"grp_id_{i}" if i == axis else f"gl_id_{i}") for i in range(ndim)]
-    b = [f"(gl_s_{i}/grp_s_{i})" for i in range(ndim)]
-    c = ["*".join(b[i+1:]) for i in range(ndim-1)] + ["1"]
-    lcl2gl = "+".join([f"{a_}*{c_}" for a_, c_ in zip(a, c)])
     a = [f"gl_id_{i}" for i in range(ndim)]
     b = [f"gl_s_{i}" for i in range(ndim)]
     c = ["*".join(b[i+1:]) for i in range(ndim-1)] + ["1"]
     gl2lcl = "+".join([f"{a_}*{c_}" for a_, c_ in zip(a, c)])
+    a = [(f"grp_id_{i}" if i == axis else f"gl_id_{i}") for i in range(ndim)]
+    b = [f"(gl_s_{i}/grp_s_{i})" for i in range(ndim)]
+    c = ["*".join(b[i+1:]) for i in range(ndim-1)] + ["1"]
+    lcl2gl = "+".join([f"{a_}*{c_}" for a_, c_ in zip(a, c)])
+    # NOTE: calculate offset to get the proper global index
+    offset = f"gl_id_0*{'0' if axis==0 else '1' if axis==ndim-1 else 'gl_s_2'}*(gl_s_{axis}-size)"
     op = cl_build("reduce_op", """
-    __kernel void reduce_op(__global const float *A, __local float *B, __global float *C) {
-      """ + "".join([
-          f"int gl_id_{i}=get_global_id({i});int gl_s_{i}=get_global_size({i});int grp_id_{i}=get_group_id({i});int grp_s_{i}=get_local_size({i});\n" for i in range(ndim)]) + """
-    """ + f"int lcl_id=get_local_id({axis}); B[lcl_id] = A[{gl2lcl}];" + """
+    __kernel void reduce_op(int size, __global const float *A, __local float *B, __global float *C) {
+      """ + "".join([f"int gl_id_{i}=get_global_id({i});int gl_s_{i}=get_global_size({i});int grp_id_{i}=get_group_id({i});int grp_s_{i}=get_local_size({i});\n" for i in range(ndim)]) + """
+    """ + f"int lcl_id=get_local_id({axis});" + """
+    """ + f"B[lcl_id] = gl_id_{axis}<size?A[{gl2lcl}-{offset}]:{padval_map[name]};" + """
+      //printf("%d %d\\n", gl_id_0, size);
       barrier(CLK_LOCAL_MEM_FENCE);
       """ + f"for (int stride=grp_s_{axis}>>1; stride>0; stride>>=1) {{" + """
         float a = B[lcl_id], b = B[lcl_id+stride];
-        if (lcl_id < stride)
-          B[lcl_id] = """ + code_map[name] + """;
+        if (lcl_id < stride) B[lcl_id] = """ + code_map[name] + """;
         barrier(CLK_LOCAL_MEM_FENCE);
       }
       if (lcl_id == 0) """ + f"C[{lcl2gl}] = B[0];" + """
     }""")
     local_mem = cl.LocalMemory(x.dtype().itemsize * grp_size)
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
-    if DEBUG: print(f"grp_size: {grp_size}, n_grps: {size // grp_size}")
-    op(global_size, local_size, x.buffer, local_mem, ret.buffer)
-    if size // grp_size > 1:
+    if DEBUG: print(f"[DDEBUG] ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
+    op(global_size, local_size, np.int32(size), x.buffer, local_mem, ret.buffer)
+    if n_grps > 1:
         # recursive reduce (inefficient)
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)
     return ret

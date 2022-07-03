@@ -170,7 +170,7 @@ class GPUArray:
             assert self.__c_contiguous, "reduce_sum along axis requires c_contiguous!"
         return reduce_op("sum", self, axis=axis, keepdims=keepdims)
 
-    def max(self, axis, keepdims):
+    def max(self, axis=None, keepdims=False):
         if axis is not None:
             assert self.__c_contiguous, "reduce_max along axis requires c_contiguous!"
         return reduce_op("max", self, axis=axis, keepdims=keepdims)
