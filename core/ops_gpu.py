@@ -33,9 +33,10 @@ def alloc_buffer(shape, dtype, hostbuf=None):
     return cl.Buffer(cl_ctx, flags, size, hostbuf=hostbuf)
 
 def broadcast(a, b):
+    # https://numpy.org/doc/stable/user/basics.broadcasting.html
     if a.shape == b.shape:
         return a, b
-    for i, j in zip(a.shape, b.shape):
+    for i, j in zip(a.shape[::-1], b.shape[::-1]):
         if i != j and (i != 1) and (j != 1):
             raise ValueError(f"Error broadcasting for {a.shape} and {b.shape}")
     ndim = max(a.ndim, b.ndim)
@@ -54,8 +55,6 @@ def unary_op(name, a, ret=None, **kwargs):
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
     code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
-    if "val" in kwargs:
-        code_map["gt"] = f"(float)isgreater(a, (float){kwargs['val']})"
     unary_op = cl_build("unary_op", f"""__kernel void unary_op(
         {''.join([f'int a_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
         __global const float *A, __global float *B) {{
@@ -72,7 +71,7 @@ def binary_op(name, a, b, ret=None):
     a, b = broadcast(a, b)
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
-    code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)"}
+    code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)", "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)"}
     binary_op = cl_build("binary_op", f"""__kernel void binary_op(
         {''.join([f'int a_s{i},int b_s{i},int res_s{i},' for i in range(a.ndim)])}
         __global const float *A, __global const float *B, __global float *C) {{
@@ -86,19 +85,22 @@ def binary_op(name, a, b, ret=None):
     return ret
 
 def matmul_op(a, b):
-    a_, b_ = a, b
-    if a.ndim == 1: a_ = a.reshape((1, *a.shape))
-    if b.ndim == 1: b_ = b.reshape((*b.shape, 1))
-    ret_shape = tuple((*a_.shape[:-1], b_.shape[-1]))
+    # https://numpy.org/doc/stable/reference/generated/numpy.matmul.html
+    squeezes = []
+    if a.ndim == 1: a = a.reshape((1, *a.shape)); squeezes.append(0)
+    if b.ndim == 1: b = b.reshape((*b.shape, 1)); squeezes.append(-1)
+    ret_shape = tuple((*a.shape[:-1], b.shape[-1]))
 
-    if a_.ndim > 3: a_ = a_.reshape((prod(a_.shape[:-2]), *a_.shape[2:]))
-    if b_.ndim > 3: b_ = b_.reshape((prod(b_.shape[:-2]), *b_.shape[2:]))
-    if a_.ndim == 2: a_ = a_.reshape((1, *a_.shape))
-    if b_.ndim == 2: b_ = b_.reshape((1, *b_.shape))
-    if a_.shape[0] != b_.shape[0]:  # broadcasting
-        assert a_.shape[0] == 1 or b_.shape[0] == 1
-        if a_.shape[0] == 1: a_ = a_.expand((b_.shape[0], *a_.shape[1:]))
-        if b_.shape[0] == 1: b_ = b_.expand((a_.shape[0], *b_.shape[1:]))
+    if a.ndim > 3: a = a.reshape((prod(a.shape[:-2]), *a.shape[2:]))
+    if b.ndim > 3: b = b.reshape((prod(b.shape[:-2]), *b.shape[2:]))
+    if a.ndim == 2: a = a.reshape((1, *a.shape))
+    if b.ndim == 2: b = b.reshape((1, *b.shape))
+    if a.shape[0] != b.shape[0]:  # broadcasting
+        assert a.shape[0] == 1 or b.shape[0] == 1
+        if a.shape[0] == 1 and b.shape[0] != 1: a = a.expand((b.shape[0], *a.shape[1:]))
+        if b.shape[0] == 1 and a.shape[0] != 1: b = b.expand((a.shape[0], *b.shape[1:]))
+    assert a.shape[0] == b.shape[0] and a.shape[2] == b.shape[1], \
+            f"invalid shape for matmul {a.shape} @ {b.shape}"
 
     ret = a.__class__(shape=ret_shape, dtype=a.dtype)
     src = f"""__kernel void matmul_op(int BS, int M, int N, int K,
@@ -113,13 +115,12 @@ def matmul_op(a, b):
       C[bs*M*N+m*N+n] = acc;
     }}"""
     op = cl_build("matmul_op", src)
-    # (BS, M, K) @ (BS, K, N)
-    BS, M, K, N = prod(a_.shape[:-2]), a_.shape[-2], a_.shape[-1], b_.shape[-1]
-    strides = [s for ss in zip(a_.strides, b_.strides) for s in ss]
-    args = [np.int32(a_) for a_ in [BS, M, N, K] + strides]
-    op((BS, M, N), None, *args, a_.buffer, b_.buffer, ret.buffer)
-    if a.ndim == 1: ret = ret.squeeze(axis=0)
-    if b.ndim == 1: ret = ret.squeeze(axis=-1)
+    BS, M, K, N = prod(a.shape[:-2]), a.shape[-2], a.shape[-1], b.shape[-1]
+    strides = [s for ss in zip(a.strides, b.strides) for s in ss]
+    args = [np.int32(a) for a in [BS, M, N, K] + strides]
+    op((BS, M, N), None, *args, a.buffer, b.buffer, ret.buffer)
+    for axis in squeezes:
+        ret = ret.squeeze(axis)
     return ret
 
 def contiguous_op(x):
@@ -190,7 +191,7 @@ def reduce_op(name, x, axis=None, keepdims=True):
         if (lcl_id<stride) B[lcl_id]={code_map[name]};
         barrier(CLK_LOCAL_MEM_FENCE);
       }}
-      if (lcl_id == 0) C[{lcl2gl}] = B[0];
+      if (lcl_id == 0) C[{lcl2gl}]=B[0];
     }}""")
     local_mem = cl.LocalMemory(x.dtype().itemsize * grp_size)
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))

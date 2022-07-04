@@ -1,8 +1,8 @@
 """Tensor wraps numpy ndarray with some stuffs for pytorch-like autograd."""
 
 import numpy as np
-import core.gpu_ops as ops
-from core.ndarray import GPUArray, CPUArray
+import core.ops as ops
+from core.ndarray import GPUArray
 
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
@@ -38,8 +38,11 @@ class Tensor:
 
     def cpu(self):
         if self._gpu:
-            # TODO: return CPUArray rather than numppy array
-            return self._values.numpy()
+            return Tensor(values=self._values.numpy(),
+                          requires_grad=self.requires_grad,
+                          dependency=self.dependency,
+                          dtype=self.dtype,
+                          name=self.name)
         return self
 
     def numpy(self):
@@ -68,15 +71,13 @@ class Tensor:
     def __gt__(self, other):
         return self.values > as_tensor(other).values
 
-    def __lt__(self, other):
-        return self.values < as_tensor(other).values
-
     def __ge__(self, other):
         return self.values >= as_tensor(other).values
 
-    def __le__(self, other):
-        return self.values <= as_tensor(other).values
+    def __eq__(self, other):
+        return self.values == as_tensor(other).values
 
+    # TODO: programmatically register
     def __add__(self, other):
         return ops.add_(self, as_tensor(other))
 

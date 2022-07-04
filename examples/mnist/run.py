@@ -62,7 +62,8 @@ def build_graph(node, G):
     return G
 
 def plot_graph(start):
-    G = nx.DiGraph()
+    #G = nx.DiGraph()
+    G = nx.Graph()
     G = build_graph(start, G)
     plt.figure(figsize=(24, 20))
     pos = nx.spring_layout(G)
@@ -108,7 +109,7 @@ def main(args):
             pred = model.forward(x)
             loss = loss_layer.loss(pred, y)
             loss.backward()
-            plot_graph(loss)
+            #plot_graph(loss)
             model.step()
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
         # evaluate

@@ -1,3 +1,4 @@
+import inspect
 import copy
 
 import numpy as np
@@ -8,41 +9,49 @@ from core.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_o
 from utils.math import prod
 
 
-def as_gpu_array(obj):
-    if not isinstance(obj, GPUArray):
-        obj = GPUArray(obj)
-    return obj
-
-
 class GPUArray:
 
-    def __init__(self, data=None, shape=None, dtype=np.float32, buffer=None):
-        if data is not None:
-            data = np.asarray(data, dtype=dtype)
-        shape = tuple(shape) if shape is not None else tuple(data.shape)
-        self.buffer = alloc_buffer(shape, dtype, data) if buffer is None else buffer
+    def __init__(self, data=None, shape=None, dtype=np.float32):
+        if isinstance(data, cl.Buffer):
+            self.buffer = data
+            assert shape is not None, "cannot infer shape when initialize using clbuffer"
+        else:
+            if data is not None:
+                data = np.asarray(data, dtype=dtype)
+                shape = data.shape
+            else:
+                assert shape is not None, "cannot infer shape when without data"
+            self.buffer = alloc_buffer(shape, dtype, data)
 
+        self.shape, self.dtype = tuple(shape), dtype
         self.strides = tuple(prod(shape[i+1:]) for i in range(len(shape)))
-        self.shape, self.dtype = shape, dtype
-        self.__c_contiguous, self.__f_contiguous = True, False
-        self.__update_contiguousness()
+        self.c_contiguous, self.f_contiguous = True, False
+        self.update_contiguousness()
         self.register_ops()
 
+    @staticmethod
+    def as_gpu_array(obj):
+        if not isinstance(obj, GPUArray):
+            obj = GPUArray(obj)
+        return obj
+
     def __repr__(self):
-        return (f"<GPUArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} contiguous=({int(self.__c_contiguous)}, {int(self.__f_contiguous)})>")
+        return (f"<GPUArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} contiguous=({int(self.c_contiguous)}, {int(self.f_contiguous)})>")
 
     def register_ops(self):
         cls = self.__class__
         for op in ("add", "sub", "mul", "truediv", "pow"):
             setattr(cls, f"__{op}__",
-                    (lambda op: lambda a, b: binary_op(op, a, as_gpu_array(b)))(op))
+                    (lambda op: lambda a, b: binary_op(op, a, self.as_gpu_array(b)))(op))
             setattr(cls, f"__i{op}__",
-                    (lambda op: lambda a, b: binary_op(op, a, as_gpu_array(b), ret=a))(op))
+                    (lambda op: lambda a, b: binary_op(op, a, self.as_gpu_array(b), ret=a))(op))
             setattr(cls, f"__r{op}__",
-                    (lambda op: lambda a, b: binary_op(op, as_gpu_array(b), a))(op))
-        setattr(cls, f"__matmul__", lambda a, b: matmul_op(a, as_gpu_array(b)))
+                    (lambda op: lambda a, b: binary_op(op, self.as_gpu_array(b), a))(op))
+        for op in ("eq", "ge", "gt"):
+            setattr(cls, f"__{op}__",
+                    (lambda op: lambda a, b: binary_op(op, a, self.as_gpu_array(b)))(op))
+        setattr(cls, f"__matmul__", lambda a, b: matmul_op(a, self.as_gpu_array(b)))
         setattr(cls, f"__neg__", lambda a: unary_op("neg", a))
-        setattr(cls, f"__gt__", lambda a, b: unary_op("gt", a, val=b))
 
     @property
     def size(self):
@@ -51,14 +60,6 @@ class GPUArray:
     @property
     def ndim(self):
         return len(self.shape)
-
-    @property
-    def c_contiguous(self):
-        return self.__c_contiguous
-
-    @property
-    def f_contiguous(self):
-        return self.__f_contiguous
 
     @classmethod
     def empty(cls, shape, dtype=np.float32):
@@ -81,9 +82,9 @@ class GPUArray:
         return cls(data=arr)
 
     @classmethod
-    def uniform(cls, a, b, shape, dtype):
+    def uniform(cls, a, b, shape, dtype=np.float32):
         buffer = cl_rng.uniform(a=a, b=b, shape=shape, dtype=dtype, cq=cl_queue).data  # cheating
-        return cls(shape=shape, dtype=dtype, buffer=buffer)
+        return cls(data=buffer, shape=shape, dtype=dtype)
 
     @classmethod
     def normal(cls):
@@ -107,14 +108,14 @@ class GPUArray:
             shape = (*shape[:axis], size // infer, *shape[axis+1:])
 
         assert prod(shape) == prod(self.shape), f"Can not reshape {self.shape} to {shape}"
-        if self.__c_contiguous or self.__f_contiguous:
+        if self.c_contiguous or self.f_contiguous:
             inst = copy.copy(self)
-            if self.__c_contiguous:
+            if self.c_contiguous:
                 strides = (prod(shape[i+1:]) for i in range(len(shape)))
             else:
                 strides = (prod(shape[:i]) for i in range(len(shape)))
             inst.shape, inst.strides = tuple(shape), tuple(strides)
-            inst.__update_contiguousness()
+            inst.update_contiguousness()
         else:
             inst = self.contiguous().reshape(shape)
         return inst
@@ -128,7 +129,7 @@ class GPUArray:
                 assert s1 == 1
             strides.append(0 if s1 < s2 else inst.strides[i])
         inst.shape, inst.strides = tuple(shape), tuple(strides)
-        inst.__update_contiguousness()
+        inst.update_contiguousness()
         return inst
 
     def squeeze(self, axis=None):
@@ -152,19 +153,18 @@ class GPUArray:
         cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size).wait()
         return self
 
-
     def transpose(self, axes):
         inst = copy.copy(self)
         inst.strides = tuple(inst.strides[a] for a in axes)
         inst.shape = tuple(inst.shape[a] for a in axes)
-        inst.__update_contiguousness()
+        inst.update_contiguousness()
         return inst
 
-    def __update_contiguousness(self):
+    def update_contiguousness(self):
         strides = [self.strides[i] for i in range(self.ndim) if self.shape[i] != 1]
         sorted_strides = sorted(strides)
-        self.__f_contiguous = sorted_strides == strides
-        self.__c_contiguous = sorted_strides[::-1] == strides
+        self.f_contiguous = sorted_strides == strides
+        self.c_contiguous = sorted_strides[::-1] == strides
 
     @property
     def T(self):
@@ -172,11 +172,11 @@ class GPUArray:
         return self.transpose(axes=axes)
 
     def sum(self, axis=None, keepdims=False):
-        if axis is not None: assert self.__c_contiguous, "reduce_sum along axis requires c_contiguous!"
+        if axis is not None: assert self.c_contiguous, "reduce_sum along axis requires c_contiguous!"
         return reduce_op("sum", self, axis=axis, keepdims=keepdims)
 
     def max(self, axis=None, keepdims=False):
-        if axis is not None: assert self.__c_contiguous, "reduce_max along axis requires c_contiguous!"
+        if axis is not None: assert self.c_contiguous, "reduce_max along axis requires c_contiguous!"
         return reduce_op("max", self, axis=axis, keepdims=keepdims)
 
     def relu(self, inplace=False):
@@ -187,16 +187,4 @@ class GPUArray:
 
     def log(self):
         return unary_op("log", self)
-
-    def gt(self, value):
-        return unary_op("sign", self, val=value)
-
-
-class CPUArray:
-
-    def relu(self, inplace=False):
-        pass
-
-    def gt(self, value):
-        pass
 

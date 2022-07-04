@@ -6,6 +6,8 @@ from core.ops_gpu import unary_op
 
 np.random.seed(0)
 
+rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
+
 def check_array(myarr, nparr, atol=0, rtol=1e-4, ignore=()):
     assert myarr.shape == nparr.shape
     assert myarr.dtype == nparr.dtype
@@ -79,7 +81,6 @@ def test_storage():
     assert np.allclose(arr2.storage(), storage)
 
 def test_matmul_op():
-    rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
     shape_pairs = [
         [(4, 5), (5, 3)],
         [(5,), (5, 3)],
@@ -99,7 +100,6 @@ def test_matmul_op():
         check_array(arr1@arr2, nparr1@nparr2)
 
 def test_squeeze():
-    rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
     shape = (1, 2, 3, 1)
     nparr = rnd(shape)
     arr = GPUArray(nparr)
@@ -113,7 +113,6 @@ def test_squeeze():
     check_array(arr.squeeze(), nparr.squeeze())
 
 def test_unary_op():
-    rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
     shape = (2, 4, 5)
     nparr = rnd(shape)
     arr = GPUArray(nparr)
@@ -122,7 +121,6 @@ def test_unary_op():
     check_array(unary_op("log", arr+1e8), np.log(nparr+1e8))
     check_array(unary_op("exp", arr), np.exp(nparr))
     check_array(unary_op("relu", arr), nparr*(nparr>0))
-    check_array(unary_op("gt", arr, val=0), (nparr>0).astype(np.float32))
 
 def test_reduce_op():
     for name in ("sum", "max"):
@@ -154,4 +152,32 @@ def test_fill_op():
     arr = GPUArray.full(shape, 1, dtype=np.float32)
     check_array(arr, nparr)
 
+def test_random():
+    arr = GPUArray.uniform(-1, 1, (100000,))
+    data = arr.numpy()
+    assert np.abs(data.mean() - 0) < 1e-2
+
+def test_broadcast():
+    for shape1, shape2 in (
+            [(), (1, 2, 3, 4)],
+            [(1,), (1, 2, 3, 4)],
+            [(1, 1, 1, 1), (1, 2, 3, 4)],
+            [(4,), (1, 2, 3, 4)],
+            [(3, 1), (1, 2, 3, 4)],
+            [(1, 3, 1), (1, 2, 3, 4)],
+            [(1, 2, 1, 1), (1, 2, 3, 4)],
+            [(1,), (1,)]):
+        arr1, arr2 = GPUArray.empty(shape1), GPUArray.empty(shape2)
+        assert (arr1+arr2).shape == arr2.shape
+
+def test_comparison_operators():
+    rndint = lambda s: np.random.randint(0, 10, size=s).astype(np.float32)
+    shape = (64, 64)
+    nparr1, nparr2 = rndint(shape), rndint(shape)
+    arr1, arr2 = GPUArray(nparr1), GPUArray(nparr2)
+    check_array(arr1==arr2, (nparr1==nparr2).astype(np.float32))
+    check_array(arr1>arr2, (nparr1>nparr2).astype(np.float32))
+    check_array(arr1>=arr2, (nparr1>=nparr2).astype(np.float32))
+    check_array(arr1<arr2, (nparr1<nparr2).astype(np.float32))
+    check_array(arr1<=arr2, (nparr1<=nparr2).astype(np.float32))
 
