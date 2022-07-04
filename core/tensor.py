@@ -20,11 +20,13 @@ class Tensor:
                  values,
                  requires_grad=False,
                  dependency=None,
-                 dtype=np.float32):
+                 dtype=np.float32,
+                 name=None):
         self._gpu = isinstance(values, GPUArray)
         self.values = values if self._gpu else np.asarray(values, dtype)
         self.dtype = dtype
         self._shape = self._values.shape
+        self.name = name
 
         self.grad = None
         self.requires_grad = requires_grad
@@ -37,7 +39,8 @@ class Tensor:
             return Tensor(values=GPUArray(self._values),
                           requires_grad=self.requires_grad,
                           dependency=self.dependency,
-                          dtype=self.dtype)
+                          dtype=self.dtype,
+                          name=self.name)
         return self
 
     def cpu(self):
@@ -60,7 +63,7 @@ class Tensor:
         return self._values.shape
 
     def __repr__(self):
-        return (f"Tensor(shape={self.shape}, "
+        return (f"Tensor(name={self.name}, shape={self.shape}, "
                 f"requires_grad={self.requires_grad}, "
                 f"gpu={self._gpu})")
 

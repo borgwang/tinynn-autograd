@@ -9,8 +9,8 @@ class SoftmaxCrossEntropyLoss(Loss):
 
     def loss(self, logits, labels):
         m = logits.shape[0]
-        #exps = (logits - logits.max(axis=1, keepdims=True)).exp()
-        exps = logits.exp()
+        exps = (logits - logits.max(axis=1, keepdims=True)).exp()
+        #exps = logits.exp()
         expsum = exps.sum()
         p = exps / expsum
         l = (p * labels).sum(axis=1)

@@ -1,12 +1,14 @@
 import numpy as np
 import pyopencl as cl
 
+def genname(prefix, *args):
+    return f"{prefix}_" + "_".join(str(id(ts))[-4:] for ts in args)
 
 def as_tensor(obj):
     from core.tensor import as_tensor
     return as_tensor(obj)
 
-def build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values):
+def build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name):
     requires_grad = ts1.requires_grad or ts2.requires_grad
     dependency = []
     if ts1.requires_grad:
@@ -14,15 +16,15 @@ def build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values):
     if ts2.requires_grad:
         dependency.append(dict(tensor=ts2, grad_fn=grad_fn_ts2))
     tensor_cls = ts1.__class__
-    return tensor_cls(values, requires_grad, dependency)
+    return tensor_cls(values, requires_grad, dependency, name=name)
 
-def build_unary_ops_tensor(ts, grad_fn, values):
+def build_unary_ops_tensor(ts, grad_fn, values, name):
     requires_grad = ts.requires_grad
     dependency = []
     if ts.requires_grad:
         dependency.append(dict(tensor=ts, grad_fn=grad_fn))
     tensor_cls = ts.__class__
-    return tensor_cls(values, requires_grad, dependency)
+    return tensor_cls(values, requires_grad, dependency, name=name)
 
 def add_(ts1, ts2):
     values = ts1.values + ts2.values
@@ -40,16 +42,34 @@ def add_(ts1, ts2):
             if dim == 1:
                 grad = grad.sum(axis=i, keepdims=True)
         return grad
-    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
+    name = genname("add", ts1, ts2)
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
 
 def sub_(ts1, ts2):
-    return ts1 + (-ts2)
+    values = ts1.values - ts2.values
+    def grad_fn_ts1(grad):
+        for _ in range(grad.ndim - ts1.values.ndim):
+            grad = grad.sum(axis=0)
+        for i, dim in enumerate(ts1.shape):
+            if dim == 1:
+                grad = grad.sum(axis=i, keepdims=True)
+        return grad
+    def grad_fn_ts2(grad):
+        for _ in range(grad.ndim - ts2.values.ndim):
+            grad = grad.sum(axis=0)
+        for i, dim in enumerate(ts2.shape):
+            if dim == 1:
+                grad = grad.sum(axis=i, keepdims=True)
+        return -grad
+    name = genname("sub", ts1, ts2)
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
 
 def mul_(ts1, ts2):
     values = ts1.values * ts2.values
     grad_fn_ts1 = lambda g: g * ts2.values
     grad_fn_ts2 = lambda g: g * ts1.values
-    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
+    name = genname("mul", ts1, ts2)
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
 
 def div_(ts1, ts2):
     values = ts1.values / ts2.values
@@ -71,8 +91,8 @@ def div_(ts1, ts2):
                 grad = grad.sum(axis=i, keepdims=True)
         return grad
 
-    return build_binary_ops_tensor(
-        ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
+    name = genname("div", ts1, ts2)
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
 
 def pow_(ts1, ts2):
     values = ts1.values ** ts2.values
@@ -91,8 +111,8 @@ def pow_(ts1, ts2):
                 grad = grad.sum(axis=i, keepdims=True)
         return grad
 
-    return build_binary_ops_tensor(
-        ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
+    name = genname("pow", ts1, ts2)
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
 
 def matmul_(ts1, ts2):
     values = ts1.values @ ts2.values
@@ -100,7 +120,8 @@ def matmul_(ts1, ts2):
         return grad @ t2.values.T
     grad_fn_ts1 = lambda g: g @ ts2.values.T
     grad_fn_ts2 = lambda g: ts1.values.T @ g
-    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values)
+    name = genname("matmul", ts1, ts2)
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
 
 
 def maximum_(ts1, ts2):
@@ -148,25 +169,29 @@ def exp_(ts):
     values = ts.values.exp()
     def grad_fn(grad):
         return values * grad
-    return build_unary_ops_tensor(ts, grad_fn, values)
+    name = genname("exp", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 def max_(ts, axis, keepdims):
     values = ts.values.max(axis=axis, keepdims=keepdims)
     def grad_fn(grad):
         return grad * (ts.values.max(axis=axis, keepdims=1) == ts.values)
-    return build_unary_ops_tensor(ts, grad_fn, values)
+    name = genname("max", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 def min_(ts, axis=None):
     values = np.min(ts.values, axis=axis)
     def grad_fn(grad):
         return grad * (ts.values.min(axis=axis, keepdims=1) == ts.values)
-    return build_unary_ops_tensor(ts, grad_fn, values)
+    name = genname("min", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 def log_(ts):
     values = ts.values.log()
     def grad_fn(grad):
         return grad / ts.values
-    return build_unary_ops_tensor(ts, grad_fn, values)
+    name = genname("log", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 def sum_(ts, axis, keepdims):
     values = ts.values.sum(axis, keepdims)
@@ -177,7 +202,8 @@ def sum_(ts, axis, keepdims):
             if not keepdims:
                 grad = grad.reshape((*ts.shape[:axis],1,*ts.shape[axis+1:]))
             return grad.expand(ts.shape)
-    return build_unary_ops_tensor(ts, grad_fn, values)
+    name = genname("sum", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 def transpose_(ts, axes=None):
     if axes is None:
@@ -196,7 +222,8 @@ def relu_(ts, inplace):
     values = ts.values.relu(inplace=inplace)
     def grad_fn(grad):
         return grad * ts.values.gt(0.0)
-    return build_unary_ops_tensor(ts, grad_fn, values)
+    name = genname("relu", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 def getitem_(ts, key):
     values = ts.values[key]
@@ -204,13 +231,15 @@ def getitem_(ts, key):
         recover_grad = np.zeros_like(ts.values)
         recover_grad[key] = grad
         return recover_grad
-    return build_unary_ops_tensor(ts, grad_fn, values)
+    name = genname("getitem", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 def neg_(ts):
     values = -ts.values
     def grad_fn(grad):
         return -grad
-    return build_unary_ops_tensor(ts, grad_fn, values)
+    name = genname("neg", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 def reshape_(ts, newshape):
     oldshape = ts.values.shape

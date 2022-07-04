@@ -2,6 +2,7 @@
 
 import runtime_path  # isort:skip
 
+import matplotlib.pyplot as plt
 import argparse
 import gzip
 import os
@@ -23,6 +24,7 @@ from utils.data_iterator import BatchIterator
 from utils.downloader import download_url
 from utils.seeder import random_seed
 
+import networkx as nx
 
 def get_one_hot(targets, nb_classes):
     return np.eye(nb_classes)[np.array(targets).reshape(-1)]
@@ -41,6 +43,43 @@ def prepare_dataset(data_dir):
     with gzip.open(save_path, "rb") as f:
         return pickle.load(f, encoding="latin1")
 
+
+def build_graph(node, G):
+    if id(node) not in G.nodes:
+        G.add_node(id(node), name=node.name, cnt=1, shape=node.shape)
+        for dep in node.dependency:
+            subnode = dep["tensor"]
+            G = build_graph(subnode, G)
+            edge = (id(node), id(subnode))
+            if edge in G.edges:
+                cnt = nx.get_edge_attributes(G, "cnt")[edge]["cnt"]
+                nx.set_edge_attributes(G, {edge: {"cnt": cnt+1}})
+            else:
+                G.add_edge(*edge, cnt=1)
+    else:
+        cnt = nx.get_node_attributes(G, "cnt")[id(node)]
+        nx.set_node_attributes(G, {id(node): {"cnt": cnt+1}})
+    return G
+
+def plot_graph(start):
+    G = nx.Graph()
+    G = build_graph(start, G)
+    plt.figure(figsize=(24, 20))
+    pos = nx.spring_layout(G)
+    nx.draw(G, pos)
+    #edge_labels = nx.get_edge_attributes(G, "cnt")
+    edge_labels = {}
+    for u, v, data in G.edges(data=True):
+        edge_labels[u, v] = f"{data['cnt']}"
+    #nx.draw_networkx_edge_labels(G, pos, labels=edge_labels)
+
+    #node_labels = nx.get_node_attributes(G, "cnt")
+    node_labels = {}
+    for n, data in G.nodes(data=True):
+        node_labels[n] = f"{data['name']}\ncnt:{data['cnt']}\n{data['shape']}"
+    nx.draw_networkx_labels(G, pos, labels=node_labels, node_size=100)
+    plt.savefig("test.png")
+    sys.exit()
 
 def main(args):
     if args.seed >= 0:
@@ -78,6 +117,7 @@ def main(args):
             pred = model.forward(x)
             loss = loss_layer.loss(pred, y)
             loss.backward()
+            plot_graph(loss)
             model.step()
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
         # evaluate

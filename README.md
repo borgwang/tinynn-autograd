@@ -37,13 +37,16 @@ python3 examples/mnist/run.py
   - [x] matmul supprot 4d array
   - [x] noncontiguous array
 - mlops
-  - layers/loss/optimizer
+  - conv op
+  - refactor layers/loss/optimizer
 - misc
   - [x] create gpu tensor directly
-  - [] initializer
-  - [] unify gpu_ops and ops
+  - [x] initializer
+  - unify gpu_ops and ops
 - abbstraction
   - wrap numpy array to CPUArray
+- speedup
+  - graph optimization
 
 ### Design
 
