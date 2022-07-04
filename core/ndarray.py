@@ -42,6 +42,7 @@ class GPUArray:
                     (lambda op: lambda a, b: binary_op(op, as_gpu_array(b), a))(op))
         setattr(cls, f"__matmul__", lambda a, b: matmul_op(a, as_gpu_array(b)))
         setattr(cls, f"__neg__", lambda a: unary_op("neg", a))
+        setattr(cls, f"__gt__", lambda a, b: unary_op("gt", a, val=b))
 
     @property
     def size(self):
@@ -86,7 +87,7 @@ class GPUArray:
 
     @classmethod
     def normal(cls):
-        pass
+        pass  # TODO
 
     def numpy(self):
         data = np.empty(self.shape, dtype=self.dtype)

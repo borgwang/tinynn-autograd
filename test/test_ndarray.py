@@ -78,8 +78,6 @@ def test_storage():
     arr2 = arr.transpose((0, 2, 1))
     assert np.allclose(arr2.storage(), storage)
 
-
-
 def test_matmul_op():
     rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
     shape_pairs = [

@@ -15,7 +15,7 @@ class Tensor:
     def __init__(self,
                  values,
                  requires_grad=False,
-                 dependency=None,
+                 dependency=(),
                  dtype=np.float32,
                  name=None):
         self._gpu = isinstance(values, GPUArray)
@@ -26,8 +26,6 @@ class Tensor:
         self.grad = None
         self.requires_grad = requires_grad
         self.dependency = dependency
-        if self.dependency is None:
-            self.dependency = ()
 
     def gpu(self):
         if not self._gpu:

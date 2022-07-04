@@ -32,7 +32,6 @@ python3 examples/mnist/run.py
     - [x] reduce support 4D array
     - [x] reduction when size is not power of 2
   - process ops
-    - [x] matmul supprot 4d array
     - conv op
   - movement ops
     - [x] reshape op
@@ -40,9 +39,7 @@ python3 examples/mnist/run.py
     - [x] contiguous op
     - slice op
   - binary ops
-    - support 4d array
   - unary ops
-    - support 4d array
 - mlops
   - conv/transpose_conv
   - refactor layers/loss/optimizer
