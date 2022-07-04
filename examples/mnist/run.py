@@ -46,7 +46,7 @@ def prepare_dataset(data_dir):
 
 def build_graph(node, G):
     if id(node) not in G.nodes:
-        G.add_node(id(node), name=node.name, cnt=1, shape=node.shape)
+        G.add_node(id(node), name=node.name, shape=node.shape, outdegree=node._outdegree)
         for dep in node.dependency:
             subnode = dep["tensor"]
             G = build_graph(subnode, G)
@@ -56,9 +56,6 @@ def build_graph(node, G):
                 nx.set_edge_attributes(G, {edge: {"cnt": cnt+1}})
             else:
                 G.add_edge(*edge, cnt=1)
-    else:
-        cnt = nx.get_node_attributes(G, "cnt")[id(node)]
-        nx.set_node_attributes(G, {id(node): {"cnt": cnt+1}})
     return G
 
 def plot_graph(start):
@@ -77,7 +74,7 @@ def plot_graph(start):
     #node_labels = nx.get_node_attributes(G, "cnt")
     node_labels = {}
     for n, data in G.nodes(data=True):
-        node_labels[n] = f"{data['name']}\ncnt:{data['cnt']}\n{data['shape']}"
+        node_labels[n] = f"{data['name']}\n{data['shape']} outdegree: {data['outdegree']}"
     nx.draw_networkx_labels(G, pos, labels=node_labels, node_size=100)
     plt.savefig("test.png")
     sys.exit()
@@ -96,7 +93,7 @@ def main(args):
     test_x = Tensor(test_x).gpu()
     test_y = Tensor(test_y)
 
-    net = Net([Dense(256), ReLU(), Dense(128), ReLU(), Dense(64), ReLU(), Dense(10)]).gpu()
+    net = Net([Dense(256), ReLU(), Dense(128), ReLU(), Dense(64), ReLU(), Dense(32), ReLU(), Dense(10)]).gpu()
     model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=SGD(lr=args.lr))
     loss_layer = SoftmaxCrossEntropyLoss()
     iterator = BatchIterator(batch_size=args.batch_size)
@@ -109,7 +106,7 @@ def main(args):
             pred = model.forward(x)
             loss = loss_layer.loss(pred, y)
             loss.backward()
-            #plot_graph(loss)
+            plot_graph(loss)
             model.step()
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
         # evaluate

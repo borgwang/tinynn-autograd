@@ -22,6 +22,7 @@ class Tensor:
         self.values = values if self._gpu else np.asarray(values, dtype)
         self.dtype = dtype
         self.name = name
+        self._outdegree = 0
 
         self.grad = None
         self.requires_grad = requires_grad
@@ -191,14 +192,19 @@ class Tensor:
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         if grad is None:
             grad = self.init_grad(self.shape, self.dtype, value=1.0)
+            self._outdegree = 1
+
         # zero grad if needed
         if self.requires_grad and self.grad is None:
             self.zero_grad()
         # accumulate the gradients and propagate
         self.grad += grad
-        for dep in self.dependency:
-            grad_for_dep = dep["grad_fn"](grad)
-            dep["tensor"].backward(grad_for_dep)
+
+        self._outdegree -= 1
+        if self._outdegree == 0:
+            for dep in self.dependency:
+                grad_for_dep = dep["grad_fn"](self.grad)
+                dep["tensor"].backward(grad_for_dep)
 
     def zero_grad(self):
         if self.grad is None:

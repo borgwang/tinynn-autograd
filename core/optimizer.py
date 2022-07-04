@@ -26,7 +26,7 @@ class SGD(BaseOptimizer):
         super().__init__(lr, weight_decay)
 
     def _compute_step(self, grad):
-        return - self.lr * grad
+        return -self.lr * grad
 
 
 class Adam(BaseOptimizer):

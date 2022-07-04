@@ -12,8 +12,10 @@ def build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name):
     dependency = []
     if ts1.requires_grad:
         dependency.append(dict(tensor=ts1, grad_fn=grad_fn_ts1))
+        ts1._outdegree += 1
     if ts2.requires_grad:
         dependency.append(dict(tensor=ts2, grad_fn=grad_fn_ts2))
+        ts2._outdegree += 1
     tensor_cls = ts1.__class__
     return tensor_cls(values, requires_grad, dependency, name=name)
 
@@ -22,6 +24,7 @@ def build_unary_ops_tensor(ts, grad_fn, values, name):
     dependency = []
     if ts.requires_grad:
         dependency.append(dict(tensor=ts, grad_fn=grad_fn))
+        ts._outdegree += 1
     tensor_cls = ts.__class__
     return tensor_cls(values, requires_grad, dependency, name=name)
 
