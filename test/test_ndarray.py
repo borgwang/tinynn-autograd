@@ -122,6 +122,18 @@ def test_unary_op():
     check_array(unary_op("exp", arr), np.exp(nparr))
     check_array(unary_op("relu", arr), nparr*(nparr>0))
 
+    shape = (1,)
+    nparr = rnd(shape)
+    arr = GPUArray(nparr)
+    arr = arr.reshape((1, 1, 1)).expand((3, 4, 5))
+    nparr = np.broadcast_to(nparr.reshape((1, 1, 1)), (3, 4, 5))
+    check_array(arr, nparr, ignore=("contig",))
+    check_array(unary_op("sign", arr), np.sign(nparr).astype(np.float32))
+    check_array(unary_op("neg", arr), -nparr)
+    check_array(unary_op("log", arr+1e8), np.log(nparr+1e8))
+    check_array(unary_op("exp", arr), np.exp(nparr))
+    check_array(unary_op("relu", arr), nparr*(nparr>0))
+
 def test_reduce_op():
     for name in ("sum", "max"):
         for shape in [
@@ -137,7 +149,7 @@ def test_reduce_op():
             check_array(op1(), op2())
             for axis in range(nparr.ndim):
                 check_array(op1(axis=axis), op2(axis=axis))
-                check_array(op1(axis=axis, keepdims=True), op2(axis=axis, keepdims=True), ignore=("stride"))
+                check_array(op1(axis=axis, keepdims=True), op2(axis=axis, keepdims=True), ignore=("stride",))
 
 def test_fill_op():
     shape = (12, 13)

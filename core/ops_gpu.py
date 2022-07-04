@@ -71,7 +71,7 @@ def binary_op(name, a, b, ret=None):
     a, b = broadcast(a, b)
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
-    code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)", "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)"}
+    code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)", "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)", "drelu": "b>0?a:0.0f"}
     binary_op = cl_build("binary_op", f"""__kernel void binary_op(
         {''.join([f'int a_s{i},int b_s{i},int res_s{i},' for i in range(a.ndim)])}
         __global const float *A, __global const float *B, __global float *C) {{

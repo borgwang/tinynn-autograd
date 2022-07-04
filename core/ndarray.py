@@ -95,6 +95,12 @@ class GPUArray:
         cl.enqueue_copy(cl_queue, data, self.contiguous().buffer, is_blocking=True)
         return data
 
+    @classmethod
+    def from_buffer(cls, buffer, shape):
+        buf = cl.Buffer(cl_ctx, cl.mem_flags.READ_WRITE, buffer.size, hostbuf=None)
+        cl.enqueue_copy(cl_queue, buf, buffer)
+        return cls(buf, shape)
+
     def contiguous(self):
         return contiguous_op(self)
 
@@ -187,4 +193,7 @@ class GPUArray:
 
     def log(self):
         return unary_op("log", self)
+
+    def drelu(self, other):
+        return binary_op("drelu", self, self.as_gpu_array(other))
 

@@ -21,8 +21,10 @@ class Tensor:
         self._gpu = isinstance(values, GPUArray)
         self.values = values if self._gpu else np.asarray(values, dtype)
         self.dtype = dtype
+
         self.name = name
-        self._outdegree = 0
+        self.outdegree = 0
+        self.bwdcost = 0
 
         self.grad = None
         self.requires_grad = requires_grad
@@ -58,7 +60,7 @@ class Tensor:
     @values.setter
     def values(self, new_values):
         self._values = new_values
-        self.grad = None
+        #self.grad = None
 
     @property
     def shape(self):
@@ -180,6 +182,10 @@ class Tensor:
         return ops.exp_(self)
 
     @property
+    def ndim(self):
+        return len(self.shape)
+
+    @property
     def T(self):
         return ops.transpose_(self, axes=None)
 
@@ -188,26 +194,30 @@ class Tensor:
         grad.fill(value)
         return grad
 
+    #@profile
     def backward(self, grad=None):
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
+        self.outdegree -= 1
         if grad is None:
-            grad = self.init_grad(self.shape, self.dtype, value=1.0)
-            self._outdegree = 1
-
+            grad = GPUArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
+            #grad = self.init_grad(self.shape, self.dtype, value=1.0)
+            self.outdegree = 0
         # zero grad if needed
         if self.requires_grad and self.grad is None:
             self.zero_grad()
-        # accumulate the gradients and propagate
+        # accumulate the gradients
         self.grad += grad
-
-        self._outdegree -= 1
-        if self._outdegree == 0:
+        # backpropagate
+        if self.outdegree == 0:
             for dep in self.dependency:
-                grad_for_dep = dep["grad_fn"](self.grad)
+                grad_for_dep, cost = dep["grad_fn"](self.grad)
+                self.bwdcost += cost
                 dep["tensor"].backward(grad_for_dep)
 
+    #@profile
     def zero_grad(self):
         if self.grad is None:
-            self.grad = self.init_grad(self.shape, self.dtype, value=0.0)
+            #self.grad = self.init_grad(self.shape, self.dtype, value=0.0)
+            self.grad = GPUArray(0.0).reshape([1]*self.ndim).expand(self.shape)
         else:
             self.grad.fill(0.0)

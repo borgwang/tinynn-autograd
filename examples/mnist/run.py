@@ -25,6 +25,7 @@ from utils.downloader import download_url
 from utils.seeder import random_seed
 
 import networkx as nx
+GRAPH = int(os.getenv("GRAPH", "0"))
 
 def get_one_hot(targets, nb_classes):
     return np.eye(nb_classes)[np.array(targets).reshape(-1)]
@@ -46,7 +47,7 @@ def prepare_dataset(data_dir):
 
 def build_graph(node, G):
     if id(node) not in G.nodes:
-        G.add_node(id(node), name=node.name, shape=node.shape, outdegree=node._outdegree)
+        G.add_node(id(node), name=node.name, shape=node.shape, outdegree=node.outdegree, bwdcost=node.bwdcost)
         for dep in node.dependency:
             subnode = dep["tensor"]
             G = build_graph(subnode, G)
@@ -72,10 +73,14 @@ def plot_graph(start):
     #nx.draw_networkx_edge_labels(G, pos, labels=edge_labels)
 
     #node_labels = nx.get_node_attributes(G, "cnt")
+    total_bwdcost = 0
     node_labels = {}
     for n, data in G.nodes(data=True):
-        node_labels[n] = f"{data['name']}\n{data['shape']} outdegree: {data['outdegree']}"
+        node_labels[n] = f"{data['name']}\n{data['shape']}\nbwdcosst: {data['bwdcost']:.4f}s"
+        print(data["bwdcost"])
+        total_bwdcost += data["bwdcost"]
     nx.draw_networkx_labels(G, pos, labels=node_labels, node_size=100)
+    print(f"total_bwdcost: {total_bwdcost:.4f}")
     plt.savefig("test.png")
     sys.exit()
 
@@ -105,8 +110,10 @@ def main(args):
             x, y = batch.inputs.gpu(), batch.targets.gpu()
             pred = model.forward(x)
             loss = loss_layer.loss(pred, y)
+            #ts = time.time()
             loss.backward()
-            plot_graph(loss)
+            #print(time.time() - ts)
+            if GRAPH: plot_graph(loss)
             model.step()
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
         # evaluate

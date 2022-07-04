@@ -50,12 +50,15 @@ python3 examples/mnist/run.py
 - abbstraction
   - [x] buffer instead of array
   - wrap numpy array to CPUArray
-- graph optimization
-  - avoid repeated backward
-  - combine nodes
 - unit testing
-
-### Design
+- speedup
+  - *currently cpu-with-autograd is 5x slower, gpu-with-autugrad is 25x slower (test on mnist 256->128->64->32->10, with batch_size=4096)*
+  - graph optimization
+    - [x] avoid repeated backward (2x faster)
+    - combine nodes
+  - gpuops optimization
+    - drelu
+  - cache cl buffer then we don't have to recreate each time
 
 ### License
 
