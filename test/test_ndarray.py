@@ -143,3 +143,17 @@ def test_reduce_op():
                 check_array(op1(axis=axis), op2(axis=axis))
                 check_array(op1(axis=axis, keepdims=True), op2(axis=axis, keepdims=True), ignore=("stride"))
 
+def test_fill_op():
+    shape = (12, 13)
+    nparr = np.empty(shape, dtype=np.float32)
+    arr = GPUArray.empty(shape, dtype=np.float32)
+    for val in (0, 1, 0.1):
+        nparr.fill(val)
+        arr.fill(val)
+        check_array(arr, nparr)
+
+    nparr = np.full(shape, 1, dtype=np.float32)
+    arr = GPUArray.full(shape, 1, dtype=np.float32)
+    check_array(arr, nparr)
+
+

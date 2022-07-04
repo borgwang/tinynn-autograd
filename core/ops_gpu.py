@@ -80,28 +80,23 @@ def unary_op(name, a, ret=None, **kwargs):
     unary_op(a.shape, None, *args, a.buffer, ret.buffer)
     return ret
 
-
 def binary_op(name, a, b, ret=None):
     a, b = broadcast(a, b)
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
     code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)"}
-    binary_op = cl_build("binary_op", """
-    __kernel void binary_op(""" +
-    "".join([f"int a_s{i}, int b_s{i}, int res_s{i}, " for i in range(a.ndim)]) +
-    """ __global const float *A, __global const float *B, __global float *C) {
-      int res_i = 0, a_i = 0, b_i = 0;""" +
-      "".join([f"const int idx{i} = get_global_id({i}); res_i += idx{i}*res_s{i}; a_i += idx{i}*a_s{i}; b_i += idx{i}*b_s{i};" for i in range(a.ndim)]) +
-      """
+    binary_op = cl_build("binary_op", f"""__kernel void binary_op(
+        {''.join([f'int a_s{i},int b_s{i},int res_s{i},' for i in range(a.ndim)])}
+        __global const float *A, __global const float *B, __global float *C) {{
+      int res_i = 0, a_i = 0, b_i = 0;
+      {''.join([f'const int idx{i}=get_global_id({i}); res_i+=idx{i}*res_s{i}; a_i+=idx{i}*a_s{i}; b_i+=idx{i}*b_s{i};' for i in range(a.ndim)])}
       float a = A[a_i], b = B[b_i];
-      C[res_i] = """ + code_map[name] + """;
-    }
-    """)
+      C[res_i] = {code_map[name]};
+    }}""")
     args = [np.int32(s) for ss in zip(a.strides, b.strides, ret.strides) for s in ss]
     global_size = (1,) if not a.shape else a.shape
     binary_op(global_size, None, *args, a.buffer, b.buffer, ret.buffer)
     return ret
-
 
 def matmul_op(a, b):
     a_, b_ = a, b
@@ -164,8 +159,8 @@ def contiguous_op(x):
 
 
 def reduce_op(name, x, axis=None, keepdims=True):
-    code_map = {"sum": "a+b", "max": "max(a,b)"}
-    padval_map = {"sum": "0.0f", "max": "-INFINITY"}
+    code_map = {"sum": "a+b", "max": "max(a,b)", "min": "min(a,b)"}
+    padval_map = {"sum": "0.0f", "max": "-INFINITY", "min": "INFINITY"}
     x_shp = x.shape
     if axis is None:
         axis, x_shp = 0, (prod(x.shape),)

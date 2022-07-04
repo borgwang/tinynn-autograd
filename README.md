@@ -27,26 +27,36 @@ python3 examples/mnist/run.py
 ### TODOs
 
 - llops
-  - [x] handle pyopencl array broadcasting
-  - [x] reduce along axis
-  - [x] contiguous array is still contiguous after transpose
-  - [x] implement movement ops
-  - [x] buffer instead of array
-  - [x] reduce support 4D array
-  - [x] reduction when size is not power of 2
-  - [x] matmul supprot 4d array
-  - [x] noncontiguous array
+  - reduce ops
+    - [x] reduce along axis
+    - [x] reduce support 4D array
+    - [x] reduction when size is not power of 2
+  - process ops
+    - [x] matmul supprot 4d array
+    - conv op
+  - movement ops
+    - [x] reshape op
+    - [x] expand op
+    - [x] contiguous op
+    - slice op
+  - binary ops
+    - support 4d array
+  - unary ops
+    - support 4d array
 - mlops
-  - conv op
+  - conv/transpose_conv
   - refactor layers/loss/optimizer
 - misc
   - [x] create gpu tensor directly
   - [x] initializer
   - unify gpu_ops and ops
 - abbstraction
+  - [x] buffer instead of array
   - wrap numpy array to CPUArray
-- speedup
-  - graph optimization
+- graph optimization
+  - avoid repeated backward
+  - combine nodes
+- unit testing
 
 ### Design
 

@@ -1,12 +1,8 @@
 """Tensor wraps numpy ndarray with some stuffs for pytorch-like autograd."""
 
-import os
-
 import numpy as np
-#import core.ops as ops
 import core.gpu_ops as ops
-from core.ndarray import GPUArray
-import pyopencl as cl
+from core.ndarray import GPUArray, CPUArray
 
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
@@ -25,14 +21,13 @@ class Tensor:
         self._gpu = isinstance(values, GPUArray)
         self.values = values if self._gpu else np.asarray(values, dtype)
         self.dtype = dtype
-        self._shape = self._values.shape
         self.name = name
 
         self.grad = None
         self.requires_grad = requires_grad
         self.dependency = dependency
         if self.dependency is None:
-            self.dependency = []
+            self.dependency = ()
 
     def gpu(self):
         if not self._gpu:
@@ -44,7 +39,12 @@ class Tensor:
         return self
 
     def cpu(self):
-        # TODO: return CPUArray rather than numppy array
+        if self._gpu:
+            # TODO: return CPUArray rather than numppy array
+            return self._values.numpy()
+        return self
+
+    def numpy(self):
         if self._gpu:
             return self._values.numpy()
         return self._values

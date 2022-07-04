@@ -28,6 +28,9 @@ class GPUArray:
         self.__update_contiguousness()
         self.register_ops()
 
+    def __repr__(self):
+        return (f"<GPUArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} contiguous=({int(self.__c_contiguous)}, {int(self.__f_contiguous)})>")
+
     def register_ops(self):
         cls = self.__class__
         for op in ("add", "sub", "mul", "truediv", "pow"):
@@ -39,59 +42,6 @@ class GPUArray:
                     (lambda op: lambda a, b: binary_op(op, as_gpu_array(b), a))(op))
         setattr(cls, f"__matmul__", lambda a, b: matmul_op(a, as_gpu_array(b)))
         setattr(cls, f"__neg__", lambda a: unary_op("neg", a))
-
-    """
-    def __matmul__(a, b):
-        return matmul_op(a, as_gpu_array(b))
-
-    def __neg__(a):
-        return unary_op("neg", a)
-
-    def __add__(a, b):
-        return binary_op("add", a, as_gpu_array(b))
-
-    def __iadd__(a, b):
-        return binary_op("add", a, as_gpu_array(b), ret=a)
-
-    def __radd__(a, b):
-        return binary_op("add", as_gpu_array(b), a)
-
-    def __sub__(a, b):
-        return binary_op("sub", a, as_gpu_array(b))
-
-    def __isub__(a, b):
-        return binary_op("sub", a, as_gpu_array(b), ret=a)
-
-    def __rsub__(a, b):
-        return binary_op("sub", as_gpu_array(b), a)
-
-    def __mul__(a, b):
-        return binary_op("mul", a, as_gpu_array(b))
-
-    def __imul__(a, b):
-        return binary_op("mul", a, as_gpu_array(b), ret=a)
-
-    def __rmul__(a, b):
-        return binary_op("mul", as_gpu_array(b), a)
-
-    def __truediv__(a, b):
-        return binary_op("truediv", a, as_gpu_array(b))
-
-    def __itruediv__(a, b):
-        return binary_op("truediv", a, as_gpu_array(b), ret=a)
-
-    def __rtruediv__(a, b):
-        return binary_op("truediv", as_gpu_array(b), a)
-
-    def __pow__(a, b):
-        return binary_op("pow", a, as_gpu_array(b))
-
-    def __ipow__(a, b):
-        return binary_op("pow", a, as_gpu_array(b), ret=a)
-
-    def __rpow__(a, b):
-        return binary_op("pow", as_gpu_array(b), a)
-    """
 
     @property
     def size(self):
@@ -115,15 +65,15 @@ class GPUArray:
 
     @classmethod
     def zeros(cls, shape, dtype=np.float32):
-        inst = cls(shape=shape, dtype=dtype)
-        inst.fill(0)
-        return inst
+        return cls(shape=shape, dtype=dtype).fill(0)
 
     @classmethod
     def ones(cls, shape, dtype=np.float32):
-        inst = cls(shape=shape, dtype=dtype)
-        inst.fill(1)
-        return inst
+        return cls(shape=shape, dtype=dtype).fill(1)
+
+    @classmethod
+    def full(cls, shape, value, dtype=np.float32):
+        return cls(shape=shape, dtype=dtype).fill(value)
 
     @classmethod
     def from_numpy(cls, arr):
@@ -198,7 +148,9 @@ class GPUArray:
         return data
 
     def fill(self, value):
-        cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size)
+        cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size).wait()
+        return self
+
 
     def transpose(self, axes):
         inst = copy.copy(self)
@@ -238,9 +190,6 @@ class GPUArray:
     def gt(self, value):
         return unary_op("sign", self, val=value)
 
-    def __repr__(self):
-        return (f"<GPUArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} "
-                f"contiguous=({int(self.__c_contiguous)}, {int(self.__f_contiguous)})>")
 
 class CPUArray:
 
@@ -249,3 +198,4 @@ class CPUArray:
 
     def gt(self, value):
         pass
+

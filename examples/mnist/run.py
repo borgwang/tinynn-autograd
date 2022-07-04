@@ -62,7 +62,7 @@ def build_graph(node, G):
     return G
 
 def plot_graph(start):
-    G = nx.Graph()
+    G = nx.DiGraph()
     G = build_graph(start, G)
     plt.figure(figsize=(24, 20))
     pos = nx.spring_layout(G)
@@ -95,16 +95,7 @@ def main(args):
     test_x = Tensor(test_x).gpu()
     test_y = Tensor(test_y)
 
-    net = Net([
-        Dense(256),
-        ReLU(),
-        Dense(128),
-        ReLU(),
-        Dense(64),
-        ReLU(),
-        Dense(10)
-    ]).gpu()
-
+    net = Net([Dense(256), ReLU(), Dense(128), ReLU(), Dense(64), ReLU(), Dense(10)]).gpu()
     model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=SGD(lr=args.lr))
     loss_layer = SoftmaxCrossEntropyLoss()
     iterator = BatchIterator(batch_size=args.batch_size)

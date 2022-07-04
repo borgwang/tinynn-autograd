@@ -1,5 +1,4 @@
 import numpy as np
-import pyopencl as cl
 
 def genname(prefix, *args):
     return f"{prefix}_" + "_".join(str(id(ts))[-4:] for ts in args)
@@ -96,12 +95,8 @@ def div_(ts1, ts2):
 
 def pow_(ts1, ts2):
     values = ts1.values ** ts2.values
-    # c = a ** b
-    # D_c / D_a = b * a ** (b-1)
-    # D_c / D_b = ln(a) * a ** b
     def grad_fn_ts1(grad):
         return grad * (ts2.values * ts1.values ** (ts2.values - np.ones((), dtype=np.float32)))
-
     def grad_fn_ts2(grad):
         grad = grad * (np.log(ts1.values) * values)
         for _ in range(grad.ndim - ts2.values.ndim):
@@ -110,7 +105,6 @@ def pow_(ts1, ts2):
             if dim == 1:
                 grad = grad.sum(axis=i, keepdims=True)
         return grad
-
     name = genname("pow", ts1, ts2)
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
 
