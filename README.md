@@ -52,13 +52,17 @@ python3 examples/mnist/run.py
   - wrap numpy array to CPUArray
 - unit testing
 - speedup
-  - *currently cpu-with-autograd is 5x slower, gpu-with-autugrad is 25x slower (test on mnist 256->128->64->32->10, with batch_size=4096)*
+  - benchmark
+    - cpu w/o autugrad: 0.48s per epoch
+    - cpu w/ autograd: 2.2s per epoch
+    - gpu w/ autograd: 4.4s per epoch
   - graph optimization
     - [x] avoid repeated backward (2x faster)
     - [x] avoid uneccessary buffer creatation (20% faster)
+    - [x] don't wait (2x faster)
     - combine nodes
   - gpuops optimization
-    - drelu
+    - [x] drelu
   - cache cl buffer then we don't have to recreate each time
 
 ### License
