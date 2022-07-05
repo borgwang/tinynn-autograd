@@ -245,7 +245,7 @@ def relu_(ts, inplace):
     values = ts.values.relu(inplace=inplace)
     @timer
     def grad_fn(grad):
-        # return grad.drelu(ts.values)  # faster
+        #return grad.drelu(ts.values)  # faster
         return grad * (ts.values > 0.0)
     name = genname("relu", ts)
     return build_unary_ops_tensor(ts, grad_fn, values, name=name)

@@ -26,7 +26,6 @@ from utils.seeder import random_seed
 
 import networkx as nx
 GRAPH = int(os.getenv("GRAPH", "0"))
-PROFILE = int(os.getenv("PROFILE", "0"))
 
 def get_one_hot(targets, nb_classes):
     return np.eye(nb_classes)[np.array(targets).reshape(-1)]
@@ -67,21 +66,18 @@ def plot_graph(start):
     plt.figure(figsize=(24, 20))
     pos = nx.spring_layout(G)
     nx.draw(G, pos)
-    #edge_labels = nx.get_edge_attributes(G, "cnt")
     edge_labels = {}
     for u, v, data in G.edges(data=True):
         edge_labels[u, v] = f"{data['cnt']}"
-    #nx.draw_networkx_edge_labels(G, pos, labels=edge_labels)
 
-    #node_labels = nx.get_node_attributes(G, "cnt")
     total_bwdcost = 0
     node_labels = {}
     for n, data in G.nodes(data=True):
         node_labels[n] = f"{data['name']}\n{data['shape']}\nbwdcosst: {data['bwdcost']:.4f}s"
-        if PROFILE: print(f"node: {data['name']} cost: {data['bwdcost']:.6f}")
+        if GRAPH: print(f"node: {data['name']} cost: {data['bwdcost']:.6f}")
         total_bwdcost += data["bwdcost"]
     nx.draw_networkx_labels(G, pos, labels=node_labels, node_size=100)
-    if PROFILE: print(f"total_bwdcost: {total_bwdcost:.4f}")
+    if GRAPH: print(f"total_bwdcost: {total_bwdcost:.4f}")
     plt.savefig("test.png")
     sys.exit()
 
@@ -111,9 +107,9 @@ def main(args):
             x, y = batch.inputs.gpu(), batch.targets.gpu()
             pred = model.forward(x)
             loss = loss_layer.loss(pred, y)
-            if PROFILE: ts = time.time()
+            if GRAPH: ts = time.time()
             loss.backward()
-            if PROFILE: print("total backward cost: ", time.time() - ts)
+            if GRAPH: print("loss.backward() cost: ", time.time() - ts)
             if GRAPH: plot_graph(loss)
             model.step()
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))

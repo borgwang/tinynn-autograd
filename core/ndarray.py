@@ -8,6 +8,9 @@ from core.ops_gpu import cl_ctx, cl_queue, cl_rng, alloc_buffer
 from core.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
 from utils.math import prod
 
+import os
+OPT = int(os.getenv("OPT", "0"))
+
 
 class GPUArray:
 
@@ -164,7 +167,8 @@ class GPUArray:
         return data
 
     def fill(self, value):
-        cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size).wait()
+        e = cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size)
+        if not OPT: e.wait()
         return self
 
     def transpose(self, axes):

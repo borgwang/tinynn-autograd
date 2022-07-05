@@ -191,4 +191,3 @@ def test_comparison_operators():
     check_array(arr1>=arr2, (nparr1>=nparr2).astype(np.float32))
     check_array(arr1<arr2, (nparr1<nparr2).astype(np.float32))
     check_array(arr1<=arr2, (nparr1<=nparr2).astype(np.float32))
-

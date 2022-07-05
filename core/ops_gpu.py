@@ -70,6 +70,7 @@ def unary_op(name, a, ret=None, **kwargs):
     return ret
 
 def binary_op(name, a, b, ret=None):
+    # TODO: check buffer size of ret
     a, b = broadcast(a, b)
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
@@ -112,7 +113,7 @@ def matmul_op(a, b):
       float acc = 0.0f; int A_idx, B_idx;
       for (int k=0; k<K; k++) {{
         A_idx = bs*A_s0+m*A_s1+k*A_s2; B_idx = bs*B_s0+k*B_s1+n*B_s2;
-        acc += A[A_idx] * B[B_idx];
+        acc += A[A_idx]*B[B_idx];
       }}
       C[bs*M*N+m*N+n] = acc;
     }}"""

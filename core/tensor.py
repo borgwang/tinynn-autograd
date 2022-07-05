@@ -208,21 +208,9 @@ class Tensor:
             else:
                 grad = self.init_grad(self.shape, self.dtype, value=1.0)
             self.outdegree = 0
-        # zero grad if needed
         if self.requires_grad and self.grad is None:
             self.zero_grad()
-        # accumulate the gradients
-        #print("accumulate for tensor: ", self.name)
-        #print("self.grad: ", self.grad, self.grad.numpy())
-        #print("partial grad: ", grad, id(grad), grad.numpy())
-
-        #self.grad += grad  # TODO: BUGGY inplace addition
-        #print("tensor: ", self.name)
-        #print("before agg: ", self.grad)
         self.grad = self.grad + grad
-        #print("after agg: ", self.grad)
-        #print("aggregate grad: ", self.grad, id(self.grad), self.grad.numpy())
-        # backpropagate
         if OPT:
             if self.outdegree == 0:
                 for dep in self.dependency:
@@ -234,7 +222,6 @@ class Tensor:
                 grad_for_dep, cost = dep["grad_fn"](grad)
                 self.bwdcost += cost
                 dep["tensor"].backward(grad_for_dep)
-
 
     #@profile
     def zero_grad(self):
