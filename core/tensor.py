@@ -4,6 +4,7 @@ import numpy as np
 import core.ops as ops
 from core.ndarray import GPUArray
 
+import time
 import os
 DEBUG = int(os.getenv("DEBUG", "0"))
 OPT = int(os.getenv("OPT", "0"))
@@ -198,7 +199,6 @@ class Tensor:
         grad.fill(value)
         return grad
 
-    #@profile
     def backward(self, grad=None):
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         self.outdegree -= 1
@@ -208,9 +208,17 @@ class Tensor:
             else:
                 grad = self.init_grad(self.shape, self.dtype, value=1.0)
             self.outdegree = 0
-        if self.requires_grad and self.grad is None:
-            self.zero_grad()
-        self.grad = self.grad + grad
+
+        if OPT:
+            if self.requires_grad and self.grad is None:
+                self.grad = grad
+            else:
+                self.grad = self.grad + grad
+        else:
+            if self.requires_grad and self.grad is None:
+                self.zero_grad()
+            self.grad = self.grad + grad
+
         if OPT:
             if self.outdegree == 0:
                 for dep in self.dependency:

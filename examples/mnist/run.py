@@ -81,6 +81,7 @@ def plot_graph(start):
     plt.savefig("test.png")
     sys.exit()
 
+@profile
 def main(args):
     if args.seed >= 0:
         random_seed(args.seed);
