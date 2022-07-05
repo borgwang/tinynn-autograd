@@ -55,7 +55,7 @@ python3 examples/mnist/run.py
   - benchmark
     - cpu w/o autugrad: 0.48s per epoch
     - cpu w/ autograd: 2.2s per epoch
-    - gpu w/ autograd: 4.4s per epoch
+    - gpu w/ autograd: 4.2s per epoch
   - graph optimization
     - [x] avoid repeated backward (2x faster)
     - [x] avoid uneccessary buffer creatation (20% faster)

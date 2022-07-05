@@ -219,7 +219,6 @@ def sum_(ts, axis, keepdims):
     @timer
     def grad_fn(grad):
         if axis is None:
-            # TODO: don't need buffer creation asd
             return grad.reshape([1]*ts.ndim).expand(ts.shape) if OPT else grad * grad.__class__.ones(ts.shape)
         else:
             if not keepdims:
@@ -245,8 +244,7 @@ def relu_(ts, inplace):
     values = ts.values.relu(inplace=inplace)
     @timer
     def grad_fn(grad):
-        #return grad.drelu(ts.values)  # faster
-        return grad * (ts.values > 0.0)
+        return grad.drelu(ts.values) if OPT else grad * (ts.values > 0.0)
     name = genname("relu", ts)
     return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
