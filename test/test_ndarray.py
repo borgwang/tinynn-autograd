@@ -127,12 +127,11 @@ def test_unary_op():
     arr = GPUArray(nparr)
     arr = arr.reshape((1, 1, 1)).expand((3, 4, 5))
     nparr = np.broadcast_to(nparr.reshape((1, 1, 1)), (3, 4, 5))
-    check_array(arr, nparr, ignore=("contig",))
-    check_array(unary_op("sign", arr), np.sign(nparr).astype(np.float32))
-    check_array(unary_op("neg", arr), -nparr)
-    check_array(unary_op("log", arr+1e8), np.log(nparr+1e8))
-    check_array(unary_op("exp", arr), np.exp(nparr))
-    check_array(unary_op("relu", arr), nparr*(nparr>0))
+    arr2 = unary_op("exp", arr)
+    assert arr2.shape == arr.shape
+    assert arr2.strides == arr.strides
+    assert arr2.size == arr.size
+    check_array(unary_op("exp", arr), np.exp(nparr), ignore=("stride", "contig"))
 
 def test_reduce_op():
     for name in ("sum", "max"):

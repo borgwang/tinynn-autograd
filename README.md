@@ -55,6 +55,7 @@ python3 examples/mnist/run.py
   - *currently cpu-with-autograd is 5x slower, gpu-with-autugrad is 25x slower (test on mnist 256->128->64->32->10, with batch_size=4096)*
   - graph optimization
     - [x] avoid repeated backward (2x faster)
+    - [x] avoid uneccessary buffer creatation (20% faster)
     - combine nodes
   - gpuops optimization
     - drelu

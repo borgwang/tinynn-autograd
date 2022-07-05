@@ -1,6 +1,9 @@
 import numpy as np
 import time
 
+import os
+OPT = int(os.getenv("OPT", "0"))
+
 def genname(prefix, *args):
     return f"{prefix}_" + "_".join(str(id(ts))[-4:] for ts in args)
 
@@ -216,10 +219,8 @@ def sum_(ts, axis, keepdims):
     @timer
     def grad_fn(grad):
         if axis is None:
-            # TODO: don't need buffer creation
-            #ret = grad.__class__.from_buffer(grad.buffer, grad.shape)
-            #return ret.reshape([1]*ts.ndim).expand(ts.shape)
-            return grad * grad.__class__.ones(ts.shape)
+            # TODO: don't need buffer creation asd
+            return grad.reshape([1]*ts.ndim).expand(ts.shape) if OPT else grad * grad.__class__.ones(ts.shape)
         else:
             if not keepdims:
                 grad = grad.reshape((*ts.shape[:axis],1,*ts.shape[axis+1:]))

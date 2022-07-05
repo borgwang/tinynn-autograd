@@ -9,6 +9,7 @@ from utils.math import prod
 import warnings
 warnings.filterwarnings("ignore")
 DEBUG = int(os.getenv("DEBUG", "0"))
+OPT = int(os.getenv("OPT", "0"))
 
 cl_ctx, cl_queue = None, None
 devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
@@ -53,7 +54,8 @@ def broadcast(a, b):
 
 def unary_op(name, a, ret=None, **kwargs):
     if ret is None:
-        ret = a.__class__(shape=a.shape, dtype=a.dtype)
+        ret = a.__class__.copy_with_new_buffer(a) if OPT else a.__class__(shape=a.shape, dtype=a.dtype)
+
     code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
     unary_op = cl_build("unary_op", f"""__kernel void unary_op(
         {''.join([f'int a_s{i}, int res_s{i}, ' for i in range(a.ndim)])}

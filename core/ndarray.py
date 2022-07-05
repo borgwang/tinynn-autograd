@@ -101,6 +101,14 @@ class GPUArray:
         cl.enqueue_copy(cl_queue, buf, buffer)
         return cls(buf, shape)
 
+    @classmethod
+    def copy_with_new_buffer(cls, inst):
+        newinst = copy.copy(inst)
+        newbuf = cl.Buffer(cl_ctx, cl.mem_flags.READ_WRITE, inst.buffer.size, hostbuf=None)
+        cl.enqueue_copy(cl_queue, newbuf, inst.buffer)
+        newinst.buffer = newbuf
+        return newinst
+
     def contiguous(self):
         return contiguous_op(self)
 

@@ -4,6 +4,10 @@ import numpy as np
 import core.ops as ops
 from core.ndarray import GPUArray
 
+import os
+DEBUG = int(os.getenv("DEBUG", "0"))
+OPT = int(os.getenv("OPT", "0"))
+
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
         obj = Tensor(obj)
@@ -199,25 +203,45 @@ class Tensor:
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         self.outdegree -= 1
         if grad is None:
-            grad = GPUArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
-            #grad = self.init_grad(self.shape, self.dtype, value=1.0)
+            if OPT:
+                grad = GPUArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
+            else:
+                grad = self.init_grad(self.shape, self.dtype, value=1.0)
             self.outdegree = 0
         # zero grad if needed
         if self.requires_grad and self.grad is None:
             self.zero_grad()
         # accumulate the gradients
-        self.grad += grad
+        #print("accumulate for tensor: ", self.name)
+        #print("self.grad: ", self.grad, self.grad.numpy())
+        #print("partial grad: ", grad, id(grad), grad.numpy())
+
+        #self.grad += grad  # TODO: BUGGY inplace addition
+        #print("tensor: ", self.name)
+        #print("before agg: ", self.grad)
+        self.grad = self.grad + grad
+        #print("after agg: ", self.grad)
+        #print("aggregate grad: ", self.grad, id(self.grad), self.grad.numpy())
         # backpropagate
-        if self.outdegree == 0:
+        if OPT:
+            if self.outdegree == 0:
+                for dep in self.dependency:
+                    grad_for_dep, cost = dep["grad_fn"](self.grad)
+                    self.bwdcost += cost
+                    dep["tensor"].backward(grad_for_dep)
+        else:
             for dep in self.dependency:
-                grad_for_dep, cost = dep["grad_fn"](self.grad)
+                grad_for_dep, cost = dep["grad_fn"](grad)
                 self.bwdcost += cost
                 dep["tensor"].backward(grad_for_dep)
+
 
     #@profile
     def zero_grad(self):
         if self.grad is None:
-            #self.grad = self.init_grad(self.shape, self.dtype, value=0.0)
-            self.grad = GPUArray(0.0).reshape([1]*self.ndim).expand(self.shape)
+            if OPT:
+                self.grad = GPUArray(0.0).reshape([1]*self.ndim).expand(self.shape)
+            else:
+                self.grad = self.init_grad(self.shape, self.dtype, value=0.0)
         else:
             self.grad.fill(0.0)
