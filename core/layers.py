@@ -5,7 +5,6 @@ import numpy as np
 from core.initializer import XavierUniformInit
 from core.initializer import ZerosInit
 
-
 class Layer:
     def __init__(self):
         self.params, self.grads = {}, {}
@@ -14,9 +13,6 @@ class Layer:
 
     def forward(self, inputs):
         raise NotImplementedError
-
-    def set_phase(self, phase):
-        self.is_training = True if phase == "TRAIN" else False
 
     def gpu(self):
         self.device = "gpu"

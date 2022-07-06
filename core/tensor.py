@@ -4,7 +4,6 @@ import numpy as np
 import core.ops as ops
 from core.ndarray import GPUArray
 
-import time
 import os
 DEBUG = int(os.getenv("DEBUG", "0"))
 OPT = int(os.getenv("OPT", "0"))
@@ -15,9 +14,7 @@ def as_tensor(obj):
         obj = Tensor(obj)
     return obj
 
-
 class Tensor:
-
     def __init__(self,
                  values,
                  requires_grad=False,
@@ -28,13 +25,13 @@ class Tensor:
         self.values = values if self._gpu else np.asarray(values, dtype)
         self.dtype = dtype
 
-        self.name = name
-        self.outdegree = 0
-        self.bwdcost = 0
-
         self.grad = None
         self.requires_grad = requires_grad
         self.dependency = dependency
+
+        self.name = name
+        self.outdegree = 0
+        self.bwdcost = 0
 
     def gpu(self):
         if not self._gpu:
@@ -77,6 +74,7 @@ class Tensor:
                 f"requires_grad={self.requires_grad}, "
                 f"gpu={self._gpu})")
 
+    # TODO: programmatically register
     def __gt__(self, other):
         return self.values > as_tensor(other).values
 
@@ -86,7 +84,6 @@ class Tensor:
     def __eq__(self, other):
         return self.values == as_tensor(other).values
 
-    # TODO: programmatically register
     def __add__(self, other):
         return ops.add_(self, as_tensor(other))
 
@@ -178,9 +175,6 @@ class Tensor:
     def flatten(self):
         return ops.flatten_(self)
 
-    def clip(self, min_=None, max_=None):
-        return ops.clip_(self, min_, max_)
-
     def relu(self, inplace=False):
         return ops.relu_(self, inplace)
 
@@ -203,7 +197,7 @@ class Tensor:
             self.outdegree = 0
 
         if OPT:
-            #TODO: raise error on Nvidia device
+            #TODO: faster, but will raise error on Nvidia device
             if self.requires_grad and self.grad is None:
                 self.grad = grad
             else:
@@ -223,7 +217,5 @@ class Tensor:
                 dep["tensor"].backward(grad_for_dep)
 
     def zero_grad(self):
-        if self.grad is None:
-            self.grad = GPUArray(0.0).reshape([1]*self.ndim).expand(self.shape)
-        else:
-            self.grad.fill(0.0)
+        self.grad = None if OPT else GPUArray(0.0).reshape([1] * self.ndim).expand(self.shape)
+

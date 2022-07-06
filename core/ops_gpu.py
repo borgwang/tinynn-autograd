@@ -1,5 +1,7 @@
 from functools import lru_cache
 
+from collections import defaultdict
+
 import os
 import numpy as np
 import pyopencl as cl
@@ -16,11 +18,11 @@ devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
 if len(devices) == 0:
     devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
 cl_ctx = cl.Context(devices)
-cl_queue = cl.CommandQueue(cl_ctx)
-cl_rng = RNG(cl_ctx)
+cl_queue = cl.CommandQueue(cl_ctx, device=devices[-1])
+cl_rng = RNG(cl_ctx)  # random number generator
 
-class KernelCouner:
-    cnt = 0
+class KernelCounter:
+    cnt = defaultdict(int)
 
 @lru_cache(maxsize=None)
 def cl_build(name, program, options=tuple()):
@@ -59,7 +61,7 @@ def unary_op(name, a, ret=None, **kwargs):
     if ret is None:
         ret = a.__class__.copy_with_new_buffer(a)
     code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
-    unary_op = cl_build("unary_op", f"""__kernel void unary_op(
+    op = cl_build("unary_op", f"""__kernel void unary_op(
         {''.join([f'int a_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
         __global const float *A, __global float *B) {{
       int a_i=0, idx=0, gl_id=get_global_id(0); int ptr=gl_id;
@@ -68,12 +70,12 @@ def unary_op(name, a, ret=None, **kwargs):
       B[gl_id]={code_map[name]};
     }}""")
     args = [np.int32(s) for ss in zip(a.strides, ret.strides) for s in ss]
-    unary_op((prod(a.shape),), None, *args, a.buffer, ret.buffer)
-    KernelCouner.cnt += 1
+    op((prod(a.shape),), None, *args, a.buffer, ret.buffer)
+    KernelCounter.cnt["unary"] += 1
     return ret
 
+#@profile
 def binary_op(name, a, b, ret=None):
-    # TODO: check buffer size of ret
     a, b = broadcast(a, b)
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
@@ -88,11 +90,11 @@ def binary_op(name, a, b, ret=None):
     }}""")
     args = [np.int32(s) for ss in zip(a.strides, b.strides, ret.strides) for s in ss]
     op((prod(a.shape),), None, *args, a.buffer, b.buffer, ret.buffer)
-    KernelCouner.cnt += 1
+    KernelCounter.cnt["binary"] += 1
     return ret
 
 def matmul_op(a, b):
-    # preprocess rule: https://numpy.org/doc/stable/reference/generated/numpy.matmul.html
+    # rule: https://numpy.org/doc/stable/reference/generated/numpy.matmul.html
     squeezes = []
     if a.ndim == 1: a = a.reshape((1, *a.shape)); squeezes.append(0)
     if b.ndim == 1: b = b.reshape((*b.shape, 1)); squeezes.append(-1)
@@ -126,7 +128,7 @@ def matmul_op(a, b):
     strides = [s for ss in zip(a.strides, b.strides) for s in ss]
     args = [np.int32(a) for a in [BS, M, N, K] + strides]
     op((BS, M, N), None, *args, a.buffer, b.buffer, ret.buffer)
-    KernelCouner.cnt += 1
+    KernelCounter.cnt["matmul"] += 1
     for axis in squeezes:
         ret = ret.squeeze(axis)
     return ret
@@ -148,7 +150,7 @@ def contiguous_op(x):
     op = cl_build("contiguous_op", src)
     args = [np.int32(s) for ss in zip(x.shape, x.strides) for s in ss]
     op((prod(x.shape),), None, *args, x.buffer, ret.buffer)
-    KernelCouner.cnt += 1
+    KernelCounter.cnt["contig"] += 1
     return ret
 
 #@profile
@@ -206,7 +208,7 @@ def reduce_op(name, x, axis=None, keepdims=True):
     local_mem = cl.LocalMemory(x.dtype().itemsize * grp_size)
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
     op(global_size, local_size, np.int32(size), x.buffer, local_mem, ret.buffer)
-    KernelCouner.cnt += 1
+    KernelCounter.cnt["reduce"] += 1
     if DEBUG>1: print(f"[DEBUG] x_shp: {x_shp} ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
     if n_grps > 1:
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)  # recursive reduce (inefficient)

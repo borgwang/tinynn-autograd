@@ -31,7 +31,6 @@ DEBUG = int(os.getenv("DEBUG", "0"))
 def get_one_hot(targets, nb_classes):
     return np.eye(nb_classes)[np.array(targets).reshape(-1)]
 
-
 def prepare_dataset(data_dir):
     url = "https://raw.githubusercontent.com/mnielsen/neural-networks-and-deep-learning/master/data/mnist.pkl.gz"
     save_path = os.path.join(data_dir, url.split("/")[-1])
@@ -44,7 +43,6 @@ def prepare_dataset(data_dir):
     # load the dataset
     with gzip.open(save_path, "rb") as f:
         return pickle.load(f, encoding="latin1")
-
 
 def build_graph(node, G):
     if id(node) not in G.nodes:
@@ -81,6 +79,7 @@ def plot_graph(start):
     plt.savefig("test.png")
     sys.exit()
 
+#@profile
 def main(args):
     if args.seed >= 0:
         random_seed(args.seed);
@@ -100,36 +99,35 @@ def main(args):
     loss_layer = SoftmaxCrossEntropyLoss()
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()
-    from core.ops_gpu import KernelCouner
+    from core.ops_gpu import KernelCounter
     for epoch in range(args.num_ep):
         t_start = time.time()
         for batch in iterator(train_x, train_y):
             model.zero_grad()
             x, y = batch.inputs.gpu(), batch.targets.gpu()
-            c1 = KernelCouner.cnt
+            c1 = sum(KernelCounter.cnt.values())
             pred = model.forward(x)
-            c2 = KernelCouner.cnt
+            c2 = sum(KernelCounter.cnt.values())
             loss = loss_layer.loss(pred, y)
-            c3 = KernelCouner.cnt
+            c3 = sum(KernelCounter.cnt.values())
             if GRAPH: ts = time.time()
             loss.backward()
             if GRAPH: print("loss.backward() cost: ", time.time() - ts)
-            c4 = KernelCouner.cnt
-            if DEBUG: print(f"[DEBUG] kernel_call forward: {c2-c1} loss: {c3-c2} backward:{c4-c3}")
+            c4 = sum(KernelCounter.cnt.values())
+            if DEBUG: print(f"[DEBUG] kernel_call forward:{c2-c1} loss:{c3-c2} backward:{c4-c3} ")
+            if DEBUG: print(f"[DEBUG] kernal_call {KernelCounter.cnt}")
             if GRAPH: plot_graph(loss)
             model.step()
+            if args.onepass: sys.exit()
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
-        """
-        # evaluate
-        model.set_phase("TEST")
-        test_pred = model.forward(test_x).cpu()
-        test_pred_idx = np.argmax(test_pred, axis=1)
-        test_y_idx = test_y.values
-        res = evaluator.evaluate(test_pred_idx, test_y_idx)
-        print(res)
-        model.set_phase("TRAIN")
-        """
-
+        if args.eval:
+            ts = time.time()
+            test_pred = model.forward(test_x).cpu()
+            test_pred_idx = np.argmax(test_pred, axis=1)
+            test_y_idx = test_y.values
+            res = evaluator.evaluate(test_pred_idx, test_y_idx)
+            print(res)
+            print(f"Evaluate time cost: {time.time() - ts:.3f}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -138,5 +136,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr", default=1e-3, type=float)
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--seed", default=-1, type=int)
+
+    parser.add_argument("--onepass", default=0, type=int)
+    parser.add_argument("--eval", default=0, type=int)
     args = parser.parse_args()
     main(args)

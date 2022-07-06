@@ -53,14 +53,14 @@ python3 examples/mnist/run.py
 - unit testing
 - speedup
   - benchmark
-    - cpu w/o autugrad: 0.48s per epoch
+    - cpu w/o autugrad: 0.48s per epoch (intel i7 6 core, 2.6GHz)
     - cpu w/ autograd: 2.2s per epoch
-    - gpu w/ autograd: 3.3s per epoch
+    - gpu w/ autograd: 2.4s per epoch (AMD)
   - graph optimization
     - [x] avoid repeated backward (2x faster)
     - [x] avoid uneccessary buffer creatation (20% faster)
     - [x] don't wait (2x faster)
-    - [x] avoid uneccessary gradient add (20% faster)
+    - [x] avoid uneccessary gradient add (30% faster)
     - combine nodes
   - gpuops optimization
     - [x] drelu

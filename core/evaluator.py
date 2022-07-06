@@ -2,16 +2,12 @@
 
 import numpy as np
 
-
 class BaseEvaluator(object):
-
     @classmethod
     def evaluate(cls, predictions, targets):
         raise NotImplementedError("Must specify evaluator.")
 
-
 class AccEvaluator(BaseEvaluator):
-
     @classmethod
     def evaluate(cls, predictions, targets):
         total_num = len(predictions)
@@ -19,36 +15,27 @@ class AccEvaluator(BaseEvaluator):
         result = {"total_num": total_num,
                   "hit_num": hit_num,
                   "accuracy": 1.0 * hit_num / total_num}
-
         return result
 
-
 class PrecisionEvaluator(BaseEvaluator):
-
     @classmethod
     def evaluate(cls, predictions, targets):
         pass
-
 
 class RecallEvaluator(BaseEvaluator):
     @classmethod
     def evaluate(cls, predictions, targets):
         pass
 
-
 class F1Evaluator(BaseEvaluator):
-
     @classmethod
     def evaluate(cls, predictions, targets):
         pass
-
 
 class ROCEvaluator(BaseEvaluator):
-
     @classmethod
     def evaluate(cls, predictions, targets):
         pass
-
 
 class EVEvaluator(BaseEvaluator):
     """
@@ -76,7 +63,6 @@ class EVEvaluator(BaseEvaluator):
         res = {"mean_ev": ev}
         return res
 
-
 class MSEEvaluator(BaseEvaluator):
     """ Mean square error evaluator"""
     @classmethod
@@ -91,7 +77,6 @@ class MSEEvaluator(BaseEvaluator):
         res = {"mse": mse}
         return res
 
-
 class MAEEvaluator(BaseEvaluator):
     """ Mean absolute error evaluator"""
     @classmethod
@@ -105,7 +90,6 @@ class MAEEvaluator(BaseEvaluator):
             raise ValueError("predision supposes to have 1 or 2 dim.")
         res = {"mse": mse}
         return res
-
 
 class R2Evaluator(BaseEvaluator):
     """ R-square Evaluator"""

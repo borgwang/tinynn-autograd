@@ -5,7 +5,6 @@ class Model:
         self.net = net
         self.loss = loss
         self.optimizer = optimizer
-        self._phase = "TRAIN"
 
     def forward(self, inputs):
         return self.net.forward(inputs)
@@ -16,7 +15,6 @@ class Model:
         print("Model saved in %s." % path)
 
     def load(self, path):
-        # compatibility checking
         with open(path, "rb") as f:
             net = pickle.load(f)
         for l1, l2 in zip(self.net.layers, net.layers):
@@ -28,14 +26,6 @@ class Model:
                 print("%s: %s" % (l1.name, l1.shape))
         self.net = net
         print("Restored model from %s." % path)
-
-    def get_phase(self):
-        return self._phase
-
-    def set_phase(self, phase):
-        assert phase in ("TRAIN", "TEST")
-        self.net.set_phase(phase)
-        self._phase = phase
 
     def step(self):
         # grad all grads

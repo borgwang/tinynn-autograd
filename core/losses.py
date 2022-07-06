@@ -17,10 +17,3 @@ class SoftmaxCrossEntropyLoss(Loss):
         ret = nll.sum() / m
         return ret
 
-
-class SigmoidCrossEntropy(Loss):
-
-    def loss(self, logits, labels):
-        p = 1.0 / (1.0 + (-logits).exp())
-        cost = logits * (1 - labels) - p.log()
-        return cost.sum() / labels.shape[0]

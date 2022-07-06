@@ -1,7 +1,6 @@
 class Net:
     def __init__(self, layers):
         self.layers = layers
-        self._phase = "TRAIN"
 
     def forward(self, inputs):
         for layer in self.layers:
@@ -17,14 +16,6 @@ class Net:
             for key in layer.params.keys():
                 assert layer.params[key].shape == params[i][key].shape
                 layer.params[key] = params[i][key]
-
-    def get_phase(self):
-        return self._phase
-
-    def set_phase(self, phase):
-        for layer in self.layers:
-            layer.set_phase(phase)
-        self._phase = phase
 
     def gpu(self):
         for layer in self.layers:

@@ -11,9 +11,7 @@ from utils.math import prod
 import os
 OPT = int(os.getenv("OPT", "0"))
 
-
 class GPUArray:
-
     def __init__(self, data=None, shape=None, dtype=np.float32):
         if isinstance(data, cl.Buffer):
             self.buffer = data
@@ -25,7 +23,6 @@ class GPUArray:
             else:
                 assert shape is not None, "cannot infer shape when without data"
             self.buffer = alloc_buffer(shape, dtype, data)
-
         self.shape, self.dtype = tuple(shape), dtype
         self.strides = tuple(prod(shape[i+1:]) for i in range(len(shape)))
         self.c_contiguous, self.f_contiguous = True, False
