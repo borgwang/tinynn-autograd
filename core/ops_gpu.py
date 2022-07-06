@@ -118,16 +118,43 @@ def matmul_op(a, b):
       int bs = get_global_id(0), m = get_global_id(1), n = get_global_id(2);
       float acc = 0.0f; int A_idx, B_idx;
       for (int k=0; k<K; k++) {{
-        A_idx = bs*A_s0+m*A_s1+k*A_s2; B_idx = bs*B_s0+k*B_s1+n*B_s2;
+        A_idx = bs*A_s0+m*A_s1+k*A_s2;
+        B_idx = bs*B_s0+k*B_s1+n*B_s2;
         acc += A[A_idx]*B[B_idx];
       }}
       C[bs*M*N+m*N+n] = acc;
     }}"""
-    op = cl_build("matmul_op", src)
     BS, M, K, N = prod(a.shape[:-2]), a.shape[-2], a.shape[-1], b.shape[-1]
+    gs = 1
+    while gs < 32 and M % gs == 0 and N % gs == 0 and gs <= M and gs <= N:
+        gs *= 2
+    grp_size = gs // 2
+    if DEBUG: print(f"[DEBUG] BS:{BS} M:{M} N:{N} grp_size:{grp_size}")
+    src2 = f"""#define GS {grp_size}
+    __kernel void matmul_op(int BS, int M, int N, int K,
+        {''.join(f'int A_s{i}, int B_s{i},' for i in range(3))}
+        __global const float *A, __global const float *B, __global float *C) {{
+      int bs=get_global_id(0), m=get_global_id(1), n=get_global_id(2);
+      int i=get_local_id(1), j=get_local_id(2);
+      __local float Alcl[GS][GS], Blcl[GS][GS];
+      float acc = 0.0f;
+      for (int t=0; t<K/GS; t++) {{
+        Alcl[i][j] = A[bs*A_s0+m*A_s1+(t*GS+j)*A_s2];
+        Blcl[i][j] = B[bs*B_s0+(t*GS+i)*B_s1+n*B_s2];
+        barrier(CLK_LOCAL_MEM_FENCE);
+        for (int k=0; k<GS; k++) {{
+          acc += Alcl[i][k] * Blcl[k][j];
+        }}
+        barrier(CLK_LOCAL_MEM_FENCE);
+      }}
+      C[bs*M*N+m*N+n] = acc;
+    }}"""
+    src = src2 if OPT>1 else src
+    op = cl_build("matmul_op", src)
     strides = [s for ss in zip(a.strides, b.strides) for s in ss]
     args = [np.int32(a) for a in [BS, M, N, K] + strides]
-    op((BS, M, N), None, *args, a.buffer, b.buffer, ret.buffer)
+    local_size = (1, grp_size, grp_size) if OPT>1 else None
+    op((BS, M, N), local_size, *args, a.buffer, b.buffer, ret.buffer)
     KernelCounter.cnt["matmul"] += 1
     for axis in squeezes:
         ret = ret.squeeze(axis)

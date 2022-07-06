@@ -8,7 +8,7 @@ np.random.seed(0)
 
 rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
 
-def check_array(myarr, nparr, atol=0, rtol=1e-4, ignore=()):
+def check_array(myarr, nparr, atol=0, rtol=1e-3, ignore=()):
     assert myarr.shape == nparr.shape
     assert myarr.dtype == nparr.dtype
     if "stride" not in ignore:
@@ -93,11 +93,13 @@ def test_matmul_op():
         [(2, 3, 4, 5), (2, 3, 5, 3)],
         [(2, 3, 4, 5), (1, 1, 5, 3)],
         [(2, 3, 4, 5), (5,)],
+        [(1, 32, 32), (1, 32, 32)],
+        [(1, 128, 256), (256, 8)]
     ]
     for s1, s2 in shape_pairs:
         nparr1, nparr2 = rnd(s1), rnd(s2)
         arr1, arr2 = GPUArray(nparr1), GPUArray(nparr2)
-        check_array(arr1@arr2, nparr1@nparr2)
+        check_array(arr1@arr2, nparr1@nparr2, rtol=1e-3)
 
 def test_squeeze():
     shape = (1, 2, 3, 1)
