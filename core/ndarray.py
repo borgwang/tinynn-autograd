@@ -167,8 +167,7 @@ class GPUArray:
         return data
 
     def fill(self, value):
-        e = cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size)
-        if not OPT: e.wait()
+        cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size)
         return self
 
     def transpose(self, axes):
@@ -186,7 +185,7 @@ class GPUArray:
 
     @property
     def T(self):
-        axes = tuple(range(len(self.shape))[::-1])
+        axes = tuple(range(self.ndim)[::-1])
         return self.transpose(axes=axes)
 
     def sum(self, axis=None, keepdims=False):

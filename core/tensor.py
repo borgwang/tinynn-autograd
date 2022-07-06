@@ -194,22 +194,15 @@ class Tensor:
     def T(self):
         return ops.transpose_(self, axes=None)
 
-    def init_grad(self, shape, dtype, value=0.0):
-        grad = GPUArray.empty(shape, dtype) if self._gpu else np.empty(shape, dtype)
-        grad.fill(value)
-        return grad
-
     def backward(self, grad=None):
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         self.outdegree -= 1
         if grad is None:
-            if OPT:
-                grad = GPUArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
-            else:
-                grad = self.init_grad(self.shape, self.dtype, value=1.0)
+            grad = GPUArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
             self.outdegree = 0
 
         if OPT:
+            #TODO: raise error on Nvidia device
             if self.requires_grad and self.grad is None:
                 self.grad = grad
             else:
@@ -219,24 +212,15 @@ class Tensor:
                 self.zero_grad()
             self.grad = self.grad + grad
 
-        if OPT:
-            if self.outdegree == 0:
-                for dep in self.dependency:
-                    grad_for_dep, cost = dep["grad_fn"](self.grad)
-                    self.bwdcost += cost
-                    dep["tensor"].backward(grad_for_dep)
-        else:
+        if not self.outdegree:
             for dep in self.dependency:
-                grad_for_dep, cost = dep["grad_fn"](grad)
-                self.bwdcost += cost
+                #grad_for_dep, cost = dep["grad_fn"](self.grad)
+                #self.bwdcost += cost
+                grad_for_dep = dep["grad_fn"](self.grad)
                 dep["tensor"].backward(grad_for_dep)
 
-    #@profile
     def zero_grad(self):
         if self.grad is None:
-            if OPT:
-                self.grad = GPUArray(0.0).reshape([1]*self.ndim).expand(self.shape)
-            else:
-                self.grad = self.init_grad(self.shape, self.dtype, value=0.0)
+            self.grad = GPUArray(0.0).reshape([1]*self.ndim).expand(self.shape)
         else:
             self.grad.fill(0.0)

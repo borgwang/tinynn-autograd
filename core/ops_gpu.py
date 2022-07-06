@@ -15,7 +15,7 @@ cl_ctx, cl_queue = None, None
 devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
 if len(devices) == 0:
     devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
-cl_ctx = cl.Context(devices=devices)
+cl_ctx = cl.Context(devices)
 cl_queue = cl.CommandQueue(cl_ctx)
 cl_rng = RNG(cl_ctx)
 
@@ -54,7 +54,7 @@ def broadcast(a, b):
 
 def unary_op(name, a, ret=None, **kwargs):
     if ret is None:
-        ret = a.__class__.copy_with_new_buffer(a) if OPT else a.__class__(shape=a.shape, dtype=a.dtype)
+        ret = a.__class__.copy_with_new_buffer(a)
     code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
     unary_op = cl_build("unary_op", f"""__kernel void unary_op(
         {''.join([f'int a_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
@@ -144,6 +144,7 @@ def contiguous_op(x):
     op((prod(x.shape),), None, *args, x.buffer, ret.buffer)
     return ret
 
+#@profile
 def reduce_op(name, x, axis=None, keepdims=True):
     code_map = {"sum": "a+b", "max": "max(a,b)", "min": "min(a,b)"}
     padval_map = {"sum": "0.0f", "max": "-INFINITY", "min": "INFINITY"}
