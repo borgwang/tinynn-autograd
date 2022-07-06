@@ -1,5 +1,4 @@
 class Net:
-
     def __init__(self, layers):
         self.layers = layers
         self._phase = "TRAIN"

@@ -1,13 +1,10 @@
 import pickle
 
-
 class Model:
-
     def __init__(self, net, loss, optimizer):
         self.net = net
         self.loss = loss
         self.optimizer = optimizer
-
         self._phase = "TRAIN"
 
     def forward(self, inputs):
@@ -49,7 +46,6 @@ class Model:
             for k, v in param.items():
                 grad[k] = param[k].grad
             all_grads.append(grad)
-
         # compute step
         self.optimizer.compute_step(all_grads, params)
 

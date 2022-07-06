@@ -19,10 +19,13 @@ cl_ctx = cl.Context(devices)
 cl_queue = cl.CommandQueue(cl_ctx)
 cl_rng = RNG(cl_ctx)
 
+class KernelCouner:
+    cnt = 0
+
 @lru_cache(maxsize=None)
 def cl_build(name, program, options=tuple()):
-    if DEBUG: print(f"[DEBUG] miss cache. build {name}")
-    if DEBUG: print(f"[DEBUG] program {name}: \n {program}")
+    if DEBUG>1: print(f"[DEBUG] miss cache. build {name}")
+    if DEBUG>1: print(f"[DEBUG] program {name}: \n {program}")
     cl_kernel = cl.Program(cl_ctx, program).build(tuple(options)).__getattr__(name)
     return lambda *args: cl_kernel(cl_queue, *args)
 
@@ -34,7 +37,7 @@ def alloc_buffer(shape, dtype, hostbuf=None):
     return cl.Buffer(cl_ctx, flags, size, hostbuf=hostbuf)
 
 def broadcast(a, b):
-    # https://numpy.org/doc/stable/user/basics.broadcasting.html
+    # rule: https://numpy.org/doc/stable/user/basics.broadcasting.html
     if a.shape == b.shape:
         return a, b
     for i, j in zip(a.shape[::-1], b.shape[::-1]):
@@ -66,6 +69,7 @@ def unary_op(name, a, ret=None, **kwargs):
     }}""")
     args = [np.int32(s) for ss in zip(a.strides, ret.strides) for s in ss]
     unary_op((prod(a.shape),), None, *args, a.buffer, ret.buffer)
+    KernelCouner.cnt += 1
     return ret
 
 def binary_op(name, a, b, ret=None):
@@ -74,7 +78,7 @@ def binary_op(name, a, b, ret=None):
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
     code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)", "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)", "drelu": "b>0?a:0.0f"}
-    binary_op = cl_build("binary_op", f"""__kernel void binary_op(
+    op = cl_build("binary_op", f"""__kernel void binary_op(
         {''.join([f'int a_s{i},int b_s{i},int res_s{i},' for i in range(a.ndim)])}
         __global const float *A, __global const float *B, __global float *C) {{
       int a_i=0, b_i=0, idx=0, gl_id=get_global_id(0); int ptr=gl_id;
@@ -83,11 +87,12 @@ def binary_op(name, a, b, ret=None):
       C[gl_id] = {code_map[name]};
     }}""")
     args = [np.int32(s) for ss in zip(a.strides, b.strides, ret.strides) for s in ss]
-    binary_op((prod(a.shape),), None, *args, a.buffer, b.buffer, ret.buffer)
+    op((prod(a.shape),), None, *args, a.buffer, b.buffer, ret.buffer)
+    KernelCouner.cnt += 1
     return ret
 
 def matmul_op(a, b):
-    # https://numpy.org/doc/stable/reference/generated/numpy.matmul.html
+    # preprocess rule: https://numpy.org/doc/stable/reference/generated/numpy.matmul.html
     squeezes = []
     if a.ndim == 1: a = a.reshape((1, *a.shape)); squeezes.append(0)
     if b.ndim == 1: b = b.reshape((*b.shape, 1)); squeezes.append(-1)
@@ -121,6 +126,7 @@ def matmul_op(a, b):
     strides = [s for ss in zip(a.strides, b.strides) for s in ss]
     args = [np.int32(a) for a in [BS, M, N, K] + strides]
     op((BS, M, N), None, *args, a.buffer, b.buffer, ret.buffer)
+    KernelCouner.cnt += 1
     for axis in squeezes:
         ret = ret.squeeze(axis)
     return ret
@@ -142,6 +148,7 @@ def contiguous_op(x):
     op = cl_build("contiguous_op", src)
     args = [np.int32(s) for ss in zip(x.shape, x.strides) for s in ss]
     op((prod(x.shape),), None, *args, x.buffer, ret.buffer)
+    KernelCouner.cnt += 1
     return ret
 
 #@profile
@@ -199,7 +206,8 @@ def reduce_op(name, x, axis=None, keepdims=True):
     local_mem = cl.LocalMemory(x.dtype().itemsize * grp_size)
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
     op(global_size, local_size, np.int32(size), x.buffer, local_mem, ret.buffer)
-    if DEBUG: print(f"[DEBUG] x_shp: {x_shp} ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
+    KernelCouner.cnt += 1
+    if DEBUG>1: print(f"[DEBUG] x_shp: {x_shp} ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
     if n_grps > 1:
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)  # recursive reduce (inefficient)
     return ret

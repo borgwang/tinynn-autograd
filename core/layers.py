@@ -56,14 +56,6 @@ class Activation(Layer):
     def forward(self, inputs):
         raise NotImplementedError
 
-class Sigmoid(Activation):
-    def forward(self, x):
-        return 1.0 / (1.0 + np.exp(-x))
-
-class Tanh(Activation):
-    def forward(self, x):
-        return (1.0 - ops.exp(-x)) / (1.0 + ops.exp(-x))
-
 class ReLU(Activation):
 
     def forward(self, x):

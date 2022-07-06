@@ -26,6 +26,7 @@ from utils.seeder import random_seed
 
 import networkx as nx
 GRAPH = int(os.getenv("GRAPH", "0"))
+DEBUG = int(os.getenv("DEBUG", "0"))
 
 def get_one_hot(targets, nb_classes):
     return np.eye(nb_classes)[np.array(targets).reshape(-1)]
@@ -60,7 +61,6 @@ def build_graph(node, G):
     return G
 
 def plot_graph(start):
-    #G = nx.DiGraph()
     G = nx.Graph()
     G = build_graph(start, G)
     plt.figure(figsize=(24, 20))
@@ -81,7 +81,6 @@ def plot_graph(start):
     plt.savefig("test.png")
     sys.exit()
 
-@profile
 def main(args):
     if args.seed >= 0:
         random_seed(args.seed);
@@ -101,19 +100,26 @@ def main(args):
     loss_layer = SoftmaxCrossEntropyLoss()
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()
+    from core.ops_gpu import KernelCouner
     for epoch in range(args.num_ep):
         t_start = time.time()
         for batch in iterator(train_x, train_y):
             model.zero_grad()
             x, y = batch.inputs.gpu(), batch.targets.gpu()
+            c1 = KernelCouner.cnt
             pred = model.forward(x)
+            c2 = KernelCouner.cnt
             loss = loss_layer.loss(pred, y)
+            c3 = KernelCouner.cnt
             if GRAPH: ts = time.time()
             loss.backward()
             if GRAPH: print("loss.backward() cost: ", time.time() - ts)
+            c4 = KernelCouner.cnt
+            if DEBUG: print(f"[DEBUG] kernel_call forward: {c2-c1} loss: {c3-c2} backward:{c4-c3}")
             if GRAPH: plot_graph(loss)
             model.step()
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
+        """
         # evaluate
         model.set_phase("TEST")
         test_pred = model.forward(test_x).cpu()
@@ -122,6 +128,7 @@ def main(args):
         res = evaluator.evaluate(test_pred_idx, test_y_idx)
         print(res)
         model.set_phase("TRAIN")
+        """
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import time
 import os
 DEBUG = int(os.getenv("DEBUG", "0"))
 OPT = int(os.getenv("OPT", "0"))
+GRAPH = int(os.getenv("GRAPH", "0"))
 
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
@@ -214,9 +215,11 @@ class Tensor:
 
         if not self.outdegree:
             for dep in self.dependency:
-                #grad_for_dep, cost = dep["grad_fn"](self.grad)
-                #self.bwdcost += cost
-                grad_for_dep = dep["grad_fn"](self.grad)
+                if GRAPH:
+                    grad_for_dep, cost = dep["grad_fn"](self.grad)
+                    self.bwdcost += cost
+                else:
+                    grad_for_dep = dep["grad_fn"](self.grad)
                 dep["tensor"].backward(grad_for_dep)
 
     def zero_grad(self):
