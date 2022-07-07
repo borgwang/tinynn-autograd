@@ -80,27 +80,6 @@ def test_storage():
     arr2 = arr.transpose((0, 2, 1))
     assert np.allclose(arr2.storage(), storage)
 
-def test_matmul_op():
-    shape_pairs = [
-        [(4, 5), (5, 3)],
-        [(5,), (5, 3)],
-        [(4, 5), (5,)],
-        [(5,), (5,)],
-        [(2, 4, 5), (2, 5, 3)],
-        [(2, 4, 5), (1, 5, 3)],
-        [(2, 4, 5), (5, 3)],
-        [(2, 4, 5), (5,)],
-        [(2, 3, 4, 5), (2, 3, 5, 3)],
-        [(2, 3, 4, 5), (1, 1, 5, 3)],
-        [(2, 3, 4, 5), (5,)],
-        [(1, 32, 32), (1, 32, 32)],
-        [(1, 128, 256), (256, 8)]
-    ]
-    for s1, s2 in shape_pairs:
-        nparr1, nparr2 = rnd(s1), rnd(s2)
-        arr1, arr2 = GPUArray(nparr1), GPUArray(nparr2)
-        check_array(arr1@arr2, nparr1@nparr2, rtol=1e-3)
-
 def test_squeeze():
     shape = (1, 2, 3, 1)
     nparr = rnd(shape)
@@ -193,3 +172,39 @@ def test_comparison_operators():
     check_array(arr1>=arr2, (nparr1>=nparr2).astype(np.float32))
     check_array(arr1<arr2, (nparr1<nparr2).astype(np.float32))
     check_array(arr1<=arr2, (nparr1<=nparr2).astype(np.float32))
+
+def test_matmul_op():
+    shape_pairs = [
+        [(4, 5), (5, 3)],
+        [(5,), (5, 3)],
+        [(4, 5), (5,)],
+        [(5,), (5,)],
+        [(2, 4, 5), (2, 5, 3)],
+        [(2, 4, 5), (1, 5, 3)],
+        [(2, 4, 5), (5, 3)],
+        [(2, 4, 5), (5,)],
+        [(2, 3, 4, 5), (2, 3, 5, 3)],
+        [(2, 3, 4, 5), (1, 1, 5, 3)],
+        [(2, 3, 4, 5), (5,)],
+        [(1, 32, 32), (1, 32, 32)],
+        [(1, 128, 256), (1, 256, 8)],
+        [(1, 4096, 256), (1, 256, 512)]
+    ]
+    for s1, s2 in shape_pairs:
+        nparr1, nparr2 = rnd(s1), rnd(s2)
+        arr1, arr2 = GPUArray(nparr1), GPUArray(nparr2)
+        check_array(arr1@arr2, nparr1@nparr2, rtol=1e-3)
+
+    s1, s2 = (4, 5), (3, 5)
+    nparr1, nparr2 = rnd(s1), rnd(s2)
+    arr1, arr2 = GPUArray(nparr1), GPUArray(nparr2)
+    arr2, nparr2 = arr2.T, nparr2.T
+    check_array(arr1@arr2, nparr1@nparr2, rtol=1e-3)
+
+    s1, s2 = (4, 5), (1, 3)
+    nparr1, nparr2 = rnd(s1), rnd(s2)
+    arr1, arr2 = GPUArray(nparr1), GPUArray(nparr2)
+    arr2 = arr2.expand((5, 3))
+    nparr2 = np.ascontiguousarray(np.broadcast_to(nparr2, (5, 3)))
+    check_array(arr1@arr2, nparr1@nparr2, rtol=1e-3)
+

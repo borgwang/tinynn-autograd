@@ -197,7 +197,7 @@ class Tensor:
             self.outdegree = 0
 
         if OPT:
-            #TODO: faster, but will raise error on Nvidia device
+            # TODO: reduce kernel counts, but raise error on Nvidia device
             if self.requires_grad and self.grad is None:
                 self.grad = grad
             else:

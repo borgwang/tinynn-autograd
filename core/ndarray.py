@@ -143,7 +143,7 @@ class GPUArray:
                 assert s1 == 1
             strides.append(0 if s1 < s2 else inst.strides[i])
         inst.shape, inst.strides = tuple(shape), tuple(strides)
-        inst.update_contiguousness()
+        inst.c_contiguous, inst.f_contiguous = False, False  # TODO: sure?
         return inst
 
     def squeeze(self, axis=None):

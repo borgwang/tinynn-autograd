@@ -12,6 +12,7 @@ import warnings
 warnings.filterwarnings("ignore")
 DEBUG = int(os.getenv("DEBUG", "0"))
 OPT = int(os.getenv("OPT", "0"))
+OPTMM = int(os.getenv("OPTMM", "0"))
 
 cl_ctx, cl_queue = None, None
 devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
@@ -110,7 +111,6 @@ def matmul_op(a, b):
         if b.shape[0] == 1 and a.shape[0] != 1: b = b.expand((a.shape[0], *b.shape[1:]))
     assert a.shape[0] == b.shape[0] and a.shape[2] == b.shape[1], \
             f"invalid shape for matmul {a.shape} @ {b.shape}"
-
     ret = a.__class__(shape=ret_shape, dtype=a.dtype)
     src = f"""__kernel void matmul_op(int BS, int M, int N, int K,
         {''.join(f'int A_s{i}, int B_s{i},' for i in range(3))}
@@ -125,12 +125,12 @@ def matmul_op(a, b):
       C[bs*M*N+m*N+n] = acc;
     }}"""
     BS, M, K, N = prod(a.shape[:-2]), a.shape[-2], a.shape[-1], b.shape[-1]
+    # TODO: AMD:32 Nvidia:8
     gs = 1
-    while gs < 32 and M % gs == 0 and N % gs == 0 and gs <= M and gs <= N:
-        gs *= 2
-    grp_size = gs // 2
-    if DEBUG: print(f"[DEBUG] BS:{BS} M:{M} N:{N} grp_size:{grp_size}")
-    src2 = f"""#define GS {grp_size}
+    while gs <= 8 and M % gs == 0 and N % gs == 0 and gs <= M and gs <= N: gs *= 2
+    gs //= 2
+    if DEBUG>1: print(f"[DEBUG] BS:{BS} M:{M} N:{N} grp_size:{gs}")
+    src2 = f"""#define GS {gs}
     __kernel void matmul_op(int BS, int M, int N, int K,
         {''.join(f'int A_s{i}, int B_s{i},' for i in range(3))}
         __global const float *A, __global const float *B, __global float *C) {{
@@ -142,19 +142,18 @@ def matmul_op(a, b):
         Alcl[i][j] = A[bs*A_s0+m*A_s1+(t*GS+j)*A_s2];
         Blcl[i][j] = B[bs*B_s0+(t*GS+i)*B_s1+n*B_s2];
         barrier(CLK_LOCAL_MEM_FENCE);
-        for (int k=0; k<GS; k++) {{
-          acc += Alcl[i][k] * Blcl[k][j];
-        }}
+        for (int k=0; k<GS; k++) acc += Alcl[i][k] * Blcl[k][j];
         barrier(CLK_LOCAL_MEM_FENCE);
       }}
       C[bs*M*N+m*N+n] = acc;
     }}"""
-    src = src2 if OPT>1 else src
+    src = src2 if OPTMM else src
     op = cl_build("matmul_op", src)
     strides = [s for ss in zip(a.strides, b.strides) for s in ss]
     args = [np.int32(a) for a in [BS, M, N, K] + strides]
-    local_size = (1, grp_size, grp_size) if OPT>1 else None
+    local_size = (1, gs, gs) if OPTMM else None
     op((BS, M, N), local_size, *args, a.buffer, b.buffer, ret.buffer)
+    if DEBUG>1: print(f"[DEBUG] ret:{ret.numpy().sum()}")
     KernelCounter.cnt["matmul"] += 1
     for axis in squeezes:
         ret = ret.squeeze(axis)
