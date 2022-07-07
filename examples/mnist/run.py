@@ -74,7 +74,7 @@ def plot_graph(start):
         node_labels[n] = f"{data['name']}\n{data['shape']}\nbwdcosst: {data['bwdcost']:.4f}s"
         if GRAPH: print(f"node: {data['name']} cost: {data['bwdcost']:.6f}")
         total_bwdcost += data["bwdcost"]
-    nx.draw_networkx_labels(G, pos, labels=node_labels, node_size=100)
+    nx.draw_networkx_labels(G, pos, labels=node_labels)
     if GRAPH: print(f"total_bwdcost: {total_bwdcost:.4f}")
     plt.savefig("test.png")
     sys.exit()

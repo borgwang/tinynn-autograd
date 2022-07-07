@@ -11,8 +11,8 @@ from utils.math import prod
 import warnings
 warnings.filterwarnings("ignore")
 DEBUG = int(os.getenv("DEBUG", "0"))
-OPT = int(os.getenv("OPT", "0"))
 OPTMM = int(os.getenv("OPTMM", "0"))
+GRAPH = int(os.getenv("GRAPH", "0"))
 
 cl_ctx, cl_queue = None, None
 devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
@@ -71,7 +71,8 @@ def unary_op(name, a, ret=None, **kwargs):
       B[gl_id]={code_map[name]};
     }}""")
     args = [np.int32(s) for ss in zip(a.strides, ret.strides) for s in ss]
-    op((prod(a.shape),), None, *args, a.buffer, ret.buffer)
+    e = op((prod(a.shape),), None, *args, a.buffer, ret.buffer)
+    if GRAPH: e.wait()
     KernelCounter.cnt["unary"] += 1
     return ret
 
@@ -90,7 +91,8 @@ def binary_op(name, a, b, ret=None):
       C[gl_id] = {code_map[name]};
     }}""")
     args = [np.int32(s) for ss in zip(a.strides, b.strides, ret.strides) for s in ss]
-    op((prod(a.shape),), None, *args, a.buffer, b.buffer, ret.buffer)
+    e = op((prod(a.shape),), None, *args, a.buffer, b.buffer, ret.buffer)
+    if GRAPH: e.wait()
     KernelCounter.cnt["binary"] += 1
     return ret
 
@@ -129,7 +131,10 @@ def matmul_op(a, b):
     gs = 1
     while gs <= 8 and M % gs == 0 and N % gs == 0 and gs <= M and gs <= N: gs *= 2
     gs //= 2
-    if DEBUG>1: print(f"[DEBUG] BS:{BS} M:{M} N:{N} grp_size:{gs}")
+    WPT = 1
+    while WPT < gs:
+        WPT *= 2
+    if DEBUG>1: print(f"[DEBUG] BS:{BS} M:{M} N:{N} grp_size:{gs} WPT:{WPT}")
     src2 = f"""#define GS {gs}
     __kernel void matmul_op(int BS, int M, int N, int K,
         {''.join(f'int A_s{i}, int B_s{i},' for i in range(3))}
@@ -147,12 +152,54 @@ def matmul_op(a, b):
       }}
       C[bs*M*N+m*N+n] = acc;
     }}"""
-    src = src2 if OPTMM else src
+
+    src3 = f"""
+    #define GS {gs}
+    #define WPT {WPT}
+    #define RTS ({gs}/{WPT})
+    __kernel void matmul_op(int BS, int M, int N, int K,
+        {''.join(f'int A_s{i}, int B_s{i},' for i in range(3))}
+        __global const float *A, __global const float *B, __global float *C) {{
+      int bs=get_global_id(0), m=get_global_id(1), n=get_global_id(2);
+      int i=get_local_id(1), j=get_local_id(2);
+      __local float Alcl[GS][GS], Blcl[GS][GS];
+      float acc[WPT];
+      for (int w=0; w<WPT; w++) acc[w] = 0.0f;
+      for (int t=0; t<K/GS; t++) {{
+        for (int w=0; w<WPT; w++) {{
+          Alcl[i][j+w*RTS] = A[bs*A_s0+m*A_s1+(t*GS+j+w*RTS)*A_s2];
+          Blcl[i][j+w*RTS] = B[bs*B_s0+(t*GS+i)*B_s1+(n+w*RTS)*B_s2];
+        }}
+        barrier(CLK_LOCAL_MEM_FENCE);
+        for (int k=0; k<GS; k++) {{
+          for (int w=0; w<WPT; w++) {{
+            acc[w] += Alcl[i][k] * Blcl[k][j+w*RTS];
+          }}
+        }}
+        barrier(CLK_LOCAL_MEM_FENCE);
+      }}
+      for (int w=0; w<WPT; w++) {{
+        C[bs*M*N+m*N+(n+w*RTS)] = acc[w];
+      }}
+    }}"""
+    if OPTMM == 0:
+        src = src
+        local_size = None
+        global_size = (BS, M, N)
+    elif OPTMM == 1:
+        src = src2
+        local_size = (1, gs, gs)
+        global_size = (BS, M, N)
+    elif OPTMM == 2:
+        src = src3
+        local_size = (1, gs, gs // WPT)
+        global_size = (BS, M, N // WPT)
+
     op = cl_build("matmul_op", src)
     strides = [s for ss in zip(a.strides, b.strides) for s in ss]
     args = [np.int32(a) for a in [BS, M, N, K] + strides]
-    local_size = (1, gs, gs) if OPTMM else None
-    op((BS, M, N), local_size, *args, a.buffer, b.buffer, ret.buffer)
+    e = op(global_size, local_size, *args, a.buffer, b.buffer, ret.buffer)
+    if GRAPH: e.wait()
     if DEBUG>1: print(f"[DEBUG] ret:{ret.numpy().sum()}")
     KernelCounter.cnt["matmul"] += 1
     for axis in squeezes:
@@ -175,7 +222,8 @@ def contiguous_op(x):
     }}"""
     op = cl_build("contiguous_op", src)
     args = [np.int32(s) for ss in zip(x.shape, x.strides) for s in ss]
-    op((prod(x.shape),), None, *args, x.buffer, ret.buffer)
+    e = op((prod(x.shape),), None, *args, x.buffer, ret.buffer)
+    if GRAPH: e.wait()
     KernelCounter.cnt["contig"] += 1
     return ret
 
@@ -233,7 +281,8 @@ def reduce_op(name, x, axis=None, keepdims=True):
     }}""")
     local_mem = cl.LocalMemory(x.dtype().itemsize * grp_size)
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
-    op(global_size, local_size, np.int32(size), x.buffer, local_mem, ret.buffer)
+    e = op(global_size, local_size, np.int32(size), x.buffer, local_mem, ret.buffer)
+    if GRAPH: e.wait()
     KernelCounter.cnt["reduce"] += 1
     if DEBUG>1: print(f"[DEBUG] x_shp: {x_shp} ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
     if n_grps > 1:
