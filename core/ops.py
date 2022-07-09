@@ -2,7 +2,6 @@ import numpy as np
 import time
 
 import os
-OPT = int(os.getenv("OPT", "0"))
 GRAPH = int(os.getenv("GRAPH", "0"))
 
 def genname(prefix, *args):
@@ -167,7 +166,7 @@ def sum_(ts, axis, keepdims):
     values = ts.values.sum(axis, keepdims)
     def grad_fn(grad):
         if axis is None:
-            return grad.reshape([1]*ts.ndim).expand(ts.shape)
+            return grad.reshape([1] * ts.ndim).expand(ts.shape)
         else:
             if not keepdims:
                 grad = grad.reshape((*ts.shape[:axis],1,*ts.shape[axis+1:]))

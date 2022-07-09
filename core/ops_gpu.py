@@ -11,7 +11,6 @@ from utils.math import prod
 import warnings
 warnings.filterwarnings("ignore")
 DEBUG = int(os.getenv("DEBUG", "0"))
-OPTMM = int(os.getenv("OPTMM", "0"))
 GRAPH = int(os.getenv("GRAPH", "0"))
 
 cl_ctx, cl_queue = None, None
@@ -60,7 +59,7 @@ def broadcast(a, b):
 
 def unary_op(name, a, ret=None, **kwargs):
     if ret is None:
-        ret = a.__class__.copy_with_new_buffer(a)
+        ret = a.__class__(shape=a.shape, dtype=a.dtype)
     code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
     op = cl_build("unary_op", f"""__kernel void unary_op(
         {''.join([f'int a_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
@@ -150,9 +149,8 @@ def contiguous_op(x):
     if not x.ndim: return x
     ret = x.__class__(shape=x.shape, dtype=x.dtype)
     args = ",".join([f"int a{i},int b{i}" for i in range(x.ndim)])
-    def_strides = ";".join([f"int _s{i}="+"*".join(f"a{j}" for j in range(i+1, x.ndim))
-                               for i in range(x.ndim-1)])
-    def_strides += f";int _s{x.ndim-1}=1;"
+    def_strides = "".join([f"int _s{i}="+"*".join(f"a{j}" for j in range(i+1, x.ndim)) + ";" for i in range(x.ndim-1)])
+    def_strides += f"int _s{x.ndim-1}=1;"
     def_indices = "".join(f"int _i{i}=curr/_s{i}; curr%=_s{i}; " for i in range(x.ndim))
     addr = "+".join([f"b{i}*_i{i}" for i in range(x.ndim)])
     src = f"""__kernel void contiguous_op({args},__global const float *A, __global float *B) {{

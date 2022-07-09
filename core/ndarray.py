@@ -8,9 +8,6 @@ from core.ops_gpu import cl_ctx, cl_queue, cl_rng, alloc_buffer
 from core.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
 from utils.math import prod
 
-import os
-OPT = int(os.getenv("OPT", "0"))
-
 class GPUArray:
     def __init__(self, data=None, shape=None, dtype=np.float32):
         if isinstance(data, cl.Buffer):
@@ -100,14 +97,6 @@ class GPUArray:
         buf = cl.Buffer(cl_ctx, cl.mem_flags.READ_WRITE, buffer.size, hostbuf=None)
         cl.enqueue_copy(cl_queue, buf, buffer)
         return cls(buf, shape)
-
-    @classmethod
-    def copy_with_new_buffer(cls, inst):
-        newinst = copy.copy(inst)
-        newbuf = cl.Buffer(cl_ctx, cl.mem_flags.READ_WRITE, inst.buffer.size, hostbuf=None)
-        cl.enqueue_copy(cl_queue, newbuf, inst.buffer)
-        newinst.buffer = newbuf
-        return newinst
 
     def contiguous(self):
         return contiguous_op(self)

@@ -6,7 +6,6 @@ from core.ndarray import GPUArray
 
 import os
 DEBUG = int(os.getenv("DEBUG", "0"))
-OPT = int(os.getenv("OPT", "0"))
 GRAPH = int(os.getenv("GRAPH", "0"))
 
 def as_tensor(obj):
@@ -196,17 +195,10 @@ class Tensor:
             grad = GPUArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
             self.outdegree = 0
 
-        if OPT:
-            # TODO: reduce kernel counts, but raise error on Nvidia device
-            if self.requires_grad and self.grad is None:
-                self.grad = grad
-            else:
-                self.grad = self.grad + grad
+        if self.requires_grad and self.grad is None:
+            self.grad = grad
         else:
-            if self.requires_grad and self.grad is None:
-                self.zero_grad()
             self.grad = self.grad + grad
-
         if not self.outdegree:
             for dep in self.dependency:
                 if GRAPH:
@@ -217,5 +209,4 @@ class Tensor:
                 dep["tensor"].backward(grad_for_dep)
 
     def zero_grad(self):
-        self.grad = None if OPT else GPUArray(0.0).reshape([1] * self.ndim).expand(self.shape)
-
+        self.grad = None
