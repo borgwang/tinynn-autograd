@@ -4,6 +4,8 @@ import numpy as np
 from core.ndarray import GPUArray
 from core.ops_gpu import unary_op
 
+import os
+DEBUG = int(os.getenv("DEBUG", "0"))
 np.random.seed(0)
 
 rnd = lambda shape: np.random.normal(0, 1, shape).astype(np.float32)
@@ -17,6 +19,7 @@ def check_array(myarr, nparr, atol=0, rtol=1e-3, ignore=()):
     if "contig" not in ignore:
         assert myarr.c_contiguous == nparr.flags.c_contiguous
         assert myarr.f_contiguous == nparr.flags.f_contiguous
+    if DEBUG: print("[DEBUG] arry absolute error: ", np.abs(myarr.numpy() - nparr).sum())
     assert np.allclose(myarr.numpy(), nparr, atol=atol, rtol=rtol)
 
 def test_resahpe():
@@ -174,6 +177,7 @@ def test_comparison_operators():
     check_array(arr1<=arr2, (nparr1<=nparr2).astype(np.float32))
 
 def test_matmul_op():
+    rnd = lambda s: np.random.randint(0, 10, s).astype(np.float32)
     shape_pairs = [
         [(4, 5), (5, 3)],
         [(5,), (5, 3)],
@@ -186,8 +190,9 @@ def test_matmul_op():
         [(2, 3, 4, 5), (2, 3, 5, 3)],
         [(2, 3, 4, 5), (1, 1, 5, 3)],
         [(2, 3, 4, 5), (5,)],
-        [(1, 32, 32), (1, 32, 32)],
         [(1, 128, 256), (1, 256, 8)],
+        [(1, 32, 32), (1, 32, 32)],
+        [(1, 2**6, 2**6), (1, 2**6, 2**6)],
         [(1, 4096, 256), (1, 256, 512)]
     ]
     for s1, s2 in shape_pairs:

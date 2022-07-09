@@ -114,33 +114,17 @@ def matmul_op(a, b):
     assert a.shape[0] == b.shape[0] and a.shape[2] == b.shape[1], \
             f"invalid shape for matmul {a.shape} @ {b.shape}"
     ret = a.__class__(shape=ret_shape, dtype=a.dtype)
-    src = f"""__kernel void matmul_op(int BS, int M, int N, int K,
-        {''.join(f'int A_s{i}, int B_s{i},' for i in range(3))}
-        __global const float *A, __global const float *B, __global float *C) {{
-      int bs = get_global_id(0), m = get_global_id(1), n = get_global_id(2);
-      float acc = 0.0f; int A_idx, B_idx;
-      for (int k=0; k<K; k++) {{
-        A_idx = bs*A_s0+m*A_s1+k*A_s2;
-        B_idx = bs*B_s0+k*B_s1+n*B_s2;
-        acc += A[A_idx]*B[B_idx];
-      }}
-      C[bs*M*N+m*N+n] = acc;
-    }}"""
     BS, M, K, N = prod(a.shape[:-2]), a.shape[-2], a.shape[-1], b.shape[-1]
     # TODO: AMD:32 Nvidia:8
     gs = 1
     while gs <= 8 and M % gs == 0 and N % gs == 0 and gs <= M and gs <= N: gs *= 2
     gs //= 2
-    WPT = 1
-    while WPT < gs:
-        WPT *= 2
-    if DEBUG>1: print(f"[DEBUG] BS:{BS} M:{M} N:{N} grp_size:{gs} WPT:{WPT}")
-    src2 = f"""#define GS {gs}
+    if DEBUG>1: print(f"[DEBUG] BS:{BS} M:{M} N:{N} grp_size:{gs}")
+    src = f"""#define GS {gs}
     __kernel void matmul_op(int BS, int M, int N, int K,
         {''.join(f'int A_s{i}, int B_s{i},' for i in range(3))}
         __global const float *A, __global const float *B, __global float *C) {{
-      int bs=get_global_id(0), m=get_global_id(1), n=get_global_id(2);
-      int i=get_local_id(1), j=get_local_id(2);
+      int bs=get_global_id(0), m=get_global_id(1), n=get_global_id(2), i=get_local_id(1), j=get_local_id(2);
       __local float Alcl[GS][GS], Blcl[GS][GS];
       float acc = 0.0f;
       for (int t=0; t<K/GS; t++) {{
@@ -152,55 +136,11 @@ def matmul_op(a, b):
       }}
       C[bs*M*N+m*N+n] = acc;
     }}"""
-
-    src3 = f"""
-    #define GS {gs}
-    #define WPT {WPT}
-    #define RTS ({gs}/{WPT})
-    __kernel void matmul_op(int BS, int M, int N, int K,
-        {''.join(f'int A_s{i}, int B_s{i},' for i in range(3))}
-        __global const float *A, __global const float *B, __global float *C) {{
-      int bs=get_global_id(0), m=get_global_id(1), n=get_global_id(2);
-      int i=get_local_id(1), j=get_local_id(2);
-      __local float Alcl[GS][GS], Blcl[GS][GS];
-      float acc[WPT];
-      for (int w=0; w<WPT; w++) acc[w] = 0.0f;
-      for (int t=0; t<K/GS; t++) {{
-        for (int w=0; w<WPT; w++) {{
-          Alcl[i][j+w*RTS] = A[bs*A_s0+m*A_s1+(t*GS+j+w*RTS)*A_s2];
-          Blcl[i][j+w*RTS] = B[bs*B_s0+(t*GS+i)*B_s1+(n+w*RTS)*B_s2];
-        }}
-        barrier(CLK_LOCAL_MEM_FENCE);
-        for (int k=0; k<GS; k++) {{
-          for (int w=0; w<WPT; w++) {{
-            acc[w] += Alcl[i][k] * Blcl[k][j+w*RTS];
-          }}
-        }}
-        barrier(CLK_LOCAL_MEM_FENCE);
-      }}
-      for (int w=0; w<WPT; w++) {{
-        C[bs*M*N+m*N+(n+w*RTS)] = acc[w];
-      }}
-    }}"""
-    if OPTMM == 0:
-        src = src
-        local_size = None
-        global_size = (BS, M, N)
-    elif OPTMM == 1:
-        src = src2
-        local_size = (1, gs, gs)
-        global_size = (BS, M, N)
-    elif OPTMM == 2:
-        src = src3
-        local_size = (1, gs, gs // WPT)
-        global_size = (BS, M, N // WPT)
-
     op = cl_build("matmul_op", src)
     strides = [s for ss in zip(a.strides, b.strides) for s in ss]
     args = [np.int32(a) for a in [BS, M, N, K] + strides]
-    e = op(global_size, local_size, *args, a.buffer, b.buffer, ret.buffer)
+    e = op((BS, M, N), (1, gs, gs), *args, a.buffer, b.buffer, ret.buffer)
     if GRAPH: e.wait()
-    if DEBUG>1: print(f"[DEBUG] ret:{ret.numpy().sum()}")
     KernelCounter.cnt["matmul"] += 1
     for axis in squeezes:
         ret = ret.squeeze(axis)
