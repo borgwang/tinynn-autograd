@@ -5,7 +5,6 @@ import core.ops as ops
 from core.ndarray import GPUArray
 
 import os
-DEBUG = int(os.getenv("DEBUG", "0"))
 GRAPH = int(os.getenv("GRAPH", "0"))
 
 def as_tensor(obj):
@@ -74,15 +73,6 @@ class Tensor:
                 f"gpu={self._gpu})")
 
     # TODO: programmatically register
-    def __gt__(self, other):
-        return self.values > as_tensor(other).values
-
-    def __ge__(self, other):
-        return self.values >= as_tensor(other).values
-
-    def __eq__(self, other):
-        return self.values == as_tensor(other).values
-
     def __add__(self, other):
         return ops.add_(self, as_tensor(other))
 
@@ -200,6 +190,7 @@ class Tensor:
                 self.grad = grad
             else:
                 self.grad = self.grad + grad
+
         if not self.outdegree:
             for dep in self.dependency:
                 if GRAPH:

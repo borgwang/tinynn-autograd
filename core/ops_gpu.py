@@ -73,7 +73,6 @@ def unary_op(name, a, ret=None, **kwargs):
     KernelCounter.cnt["unary"] += 1
     return ret
 
-#@profile
 def binary_op(name, a, b, ret=None):
     a, b = broadcast(a, b)
     if ret is None:

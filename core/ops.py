@@ -1,5 +1,5 @@
 import numpy as np
-import time
+from utils.helper import timer
 
 import os
 GRAPH = int(os.getenv("GRAPH", "0"))
@@ -10,14 +10,6 @@ def genname(prefix, *args):
 def as_tensor(obj):
     from core.tensor import as_tensor
     return as_tensor(obj)
-
-def timer(func):
-    def wrapper(*args, **kwargs):
-        ts = time.time()
-        ret = func(*args, **kwargs)
-        cost = time.time() - ts
-        return ret, cost
-    return wrapper
 
 def build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name):
     requires_grad = ts1.requires_grad or ts2.requires_grad
@@ -113,9 +105,9 @@ def div_(ts1, ts2):
 def pow_(ts1, ts2):
     values = ts1.values ** ts2.values
     def grad_fn_ts1(grad):
-        return grad * (ts2.values * ts1.values ** (ts2.values - np.ones((), dtype=np.float32)))
+        return grad * (ts2.values * ts1.values ** (ts2.values - 1.0))
     def grad_fn_ts2(grad):
-        grad = grad * (np.log(ts1.values) * values)
+        grad = grad * (values * ts1.values.log())
         for _ in range(grad.ndim - ts2.values.ndim):
             grad = grad.sum(axis=0)
         for i, dim in enumerate(ts2.shape):
@@ -194,12 +186,6 @@ def reshape_(ts, newshape):
     def grad_fn(grad):
         return grad.reshape(oldshape)
     return build_unary_ops_tensor(ts, grad_fn, values)
-
-def sum(obj, axis=None):
-    return sum_(as_tensor(obj), axis=axis)
-
-def log(obj):
-    return log_(as_tensor(obj))
 
 # TODO: implement ops below
 def transpose_(ts, axes=None):

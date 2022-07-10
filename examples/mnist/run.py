@@ -22,7 +22,6 @@ from core.optimizer import Adam
 from core.tensor import Tensor
 from utils.data_iterator import BatchIterator
 from utils.downloader import download_url
-from utils.seeder import random_seed
 
 import networkx as nx
 GRAPH = int(os.getenv("GRAPH", "0"))
@@ -40,7 +39,6 @@ def prepare_dataset(data_dir):
     except Exception as e:
         print('Error downloading dataset: %s' % str(e))
         sys.exit(1)
-    # load the dataset
     with gzip.open(save_path, "rb") as f:
         return pickle.load(f, encoding="latin1")
 
@@ -81,7 +79,7 @@ def plot_graph(start):
 
 def main(args):
     if args.seed >= 0:
-        random_seed(args.seed);
+        np.random.seed(args.seed)
 
     train_set, valid_set, test_set = prepare_dataset(args.data_dir)
     train_x, train_y = train_set
@@ -113,20 +111,18 @@ def main(args):
             loss.backward()
             if GRAPH: print("loss.backward() cost: ", time.time() - ts)
             c4 = sum(KernelCounter.cnt.values())
-            if DEBUG: print(f"[DEBUG] kernel_call forward:{c2-c1} loss:{c3-c2} backward:{c4-c3} ")
-            if DEBUG: print(f"[DEBUG] kernal_call {KernelCounter.cnt}")
             if GRAPH: plot_graph(loss)
             model.step()
+            c5 = sum(KernelCounter.cnt.values())
+            if DEBUG: print(f"[DEBUG] kernel_call forward:{c2-c1} loss:{c3-c2} backward:{c4-c3} step:{c5-c4}")
+            if DEBUG: print(f"[DEBUG] kernal_call {dict(KernelCounter.cnt)}")
             if args.onepass: sys.exit()
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
         if args.eval:
-            ts = time.time()
             test_pred = model.forward(test_x).numpy()
             test_pred_idx = np.argmax(test_pred, axis=1)
             test_y_idx = test_y.values
-            res = evaluator.evaluate(test_pred_idx, test_y_idx)
-            print(res)
-            print(f"Evaluate time cost: {time.time() - ts:.3f}")
+            print(evaluator.evaluate(test_pred_idx, test_y_idx))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
