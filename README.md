@@ -64,7 +64,7 @@ python3 examples/mnist/run.py
     - combine nodes
   - gpuops optimization
     - [x] drelu
-  - cache cl buffer then we don't have to recreate each time
+  - cache cl buffer, then we don't have to recreate each time
 
 ### License
 

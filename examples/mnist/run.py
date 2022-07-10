@@ -79,7 +79,6 @@ def plot_graph(start):
     plt.savefig("test.png")
     sys.exit()
 
-#@profile
 def main(args):
     if args.seed >= 0:
         random_seed(args.seed);
@@ -122,7 +121,7 @@ def main(args):
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
         if args.eval:
             ts = time.time()
-            test_pred = model.forward(test_x).cpu()
+            test_pred = model.forward(test_x).numpy()
             test_pred_idx = np.argmax(test_pred, axis=1)
             test_y_idx = test_y.values
             res = evaluator.evaluate(test_pred_idx, test_y_idx)

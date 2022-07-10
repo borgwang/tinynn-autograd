@@ -114,7 +114,6 @@ def matmul_op(a, b):
             f"invalid shape for matmul {a.shape} @ {b.shape}"
     ret = a.__class__(shape=ret_shape, dtype=a.dtype)
     BS, M, K, N = prod(a.shape[:-2]), a.shape[-2], a.shape[-1], b.shape[-1]
-    # TODO: AMD:32 Nvidia:8
     gs = 1
     while gs <= 8 and M % gs == 0 and N % gs == 0 and gs <= M and gs <= N: gs *= 2
     gs //= 2

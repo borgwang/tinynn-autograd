@@ -195,10 +195,11 @@ class Tensor:
             grad = GPUArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
             self.outdegree = 0
 
-        if self.requires_grad and self.grad is None:
-            self.grad = grad
-        else:
-            self.grad = self.grad + grad
+        if self.requires_grad:
+            if self.grad is None:
+                self.grad = grad
+            else:
+                self.grad = self.grad + grad
         if not self.outdegree:
             for dep in self.dependency:
                 if GRAPH:
