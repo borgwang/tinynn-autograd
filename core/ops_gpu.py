@@ -1,7 +1,5 @@
 from functools import lru_cache
-
 from collections import defaultdict
-
 import os
 import numpy as np
 import pyopencl as cl

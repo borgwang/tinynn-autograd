@@ -18,7 +18,7 @@ from core.layers import ReLU
 from core.losses import SoftmaxCrossEntropyLoss
 from core.model import Model
 from core.nn import Net
-from core.optimizer import Adam, SGD
+from core.optimizer import Adam
 from core.tensor import Tensor
 from utils.data_iterator import BatchIterator
 from utils.downloader import download_url
@@ -94,7 +94,7 @@ def main(args):
     test_y = Tensor(test_y)
 
     net = Net([Dense(256), ReLU(), Dense(128), ReLU(), Dense(64), ReLU(), Dense(32), ReLU(), Dense(10)]).gpu()
-    model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=SGD(lr=args.lr))
+    model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=Adam(lr=args.lr))
     loss_layer = SoftmaxCrossEntropyLoss()
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()

@@ -80,12 +80,13 @@ class GPUArray:
 
     @classmethod
     def uniform(cls, a, b, shape, dtype=np.float32):
-        buffer = cl_rng.uniform(a=a, b=b, shape=shape, dtype=dtype, cq=cl_queue).data  # cheating
+        buffer = cl_rng.uniform(a=a, b=b, shape=shape, dtype=dtype, cq=cl_queue).data
         return cls(data=buffer, shape=shape, dtype=dtype)
 
     @classmethod
-    def normal(cls):
-        pass  # TODO
+    def normal(cls, loc, scale, shape, dtype=np.float32):
+        buffer = cl_rng.normal(mu=loc, sigma=scale, shape=shape, dtype=dtype, cq=cl_queue).data
+        return cls(data=buffer, shape=shape, dtype=dtype)
 
     def numpy(self):
         data = np.empty(self.shape, dtype=self.dtype)
@@ -126,7 +127,7 @@ class GPUArray:
                 assert s1 == 1
             strides.append(0 if s1 < s2 else inst.strides[i])
         inst.shape, inst.strides = tuple(shape), tuple(strides)
-        inst.c_contiguous, inst.f_contiguous = False, False  # TODO: sure?
+        inst.c_contiguous, inst.f_contiguous = False, False
         return inst
 
     def squeeze(self, axis=None):
