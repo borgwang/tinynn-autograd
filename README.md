@@ -37,7 +37,7 @@ python3 examples/mnist/run.py
     - [x] reshape op
     - [x] expand op
     - [x] contiguous op
-    - slice op
+    - [x] slice op
   - binary ops
   - unary ops
 - mlops

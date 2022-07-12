@@ -18,7 +18,7 @@ if len(devices) == 0:
     devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
 cl_ctx = cl.Context(devices)
 cl_queue = cl.CommandQueue(cl_ctx, device=devices[-1])
-cl_rng = RNG(cl_ctx)  # random number generator
+cl_rng = RNG(cl_ctx)
 
 class KernelCounter:
     cnt = defaultdict(int)

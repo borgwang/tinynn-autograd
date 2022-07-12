@@ -82,8 +82,8 @@ class GPUArray:
 
     def __setitem__(self, key, value):
         item = self[key]
-        # TODO: assign ops
         # unary_op("noop", value, ret=item)
+        assert False, "TODO: implement assign ops"
 
     @property
     def size(self):
