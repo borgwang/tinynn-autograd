@@ -1,5 +1,6 @@
 import numpy as np
 from utils.helper import timer
+from utils.math import argsort
 
 import os
 GRAPH = int(os.getenv("GRAPH", "0"))
@@ -74,9 +75,9 @@ def sub_(ts1, ts2):
 def mul_(ts1, ts2):
     values = ts1.values * ts2.values
     def grad_fn_ts1(grad):
-        return grad * ts2.values
+        return ts2.values * grad
     def grad_fn_ts2(grad):
-        return grad * ts1.values
+        return ts1.values * grad
     name = genname("mul", ts1, ts2)
     return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
 
@@ -155,7 +156,7 @@ def log_(ts):
     return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 def sum_(ts, axis, keepdims):
-    values = ts.values.sum(axis, keepdims)
+    values = ts.values.sum(axis=axis, keepdims=keepdims)
     def grad_fn(grad):
         if axis is None:
             return grad.reshape([1] * ts.ndim).expand(ts.shape)
@@ -185,22 +186,20 @@ def reshape_(ts, newshape):
     values = ts.values.reshape(newshape)
     def grad_fn(grad):
         return grad.reshape(oldshape)
-    return build_unary_ops_tensor(ts, grad_fn, values)
+    name = genname("reshape", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
+
+def permute_(ts, axes=None):
+    if axes is None:
+        axes = range(ts.values.ndim)[::-1]
+    axes = list(axes)
+    values = ts.values.permute(axes)
+    def grad_fn(grad):
+        return grad.permute(argsort(axes))
+    name = genname("permute", ts)
+    return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
 # TODO: implement ops below
-def transpose_(ts, axes=None):
-    if axes is None:
-        assert len(ts.values.shape) == 2
-        axes = (1, 0)
-    values = ts.values.transpose(axes)
-    if axes is None:
-        axes = reversed(range(ts.values.ndim))
-    axes = list(axes)
-    # recover to original shape
-    def grad_fn(grad):
-        return grad.transpose(np.argsort(axes))
-    return build_unary_ops_tensor(ts, grad_fn, values)
-
 def getitem_(ts, key):
     values = ts.values[key]
     def grad_fn(grad):

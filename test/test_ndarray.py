@@ -2,7 +2,7 @@ import runtime_path  # isort:skip
 
 import numpy as np
 from core.ndarray import GPUArray
-from core.ops_gpu import unary_op
+from core.backend.ops_gpu import unary_op
 
 import os
 DEBUG = int(os.getenv("DEBUG", "0"))
@@ -34,7 +34,7 @@ def test_resahpe():
         check_array(arr.T.reshape(shape), nparr.T.reshape(shape, order="A"))
 
     for shape in ((4, 3, 2), (1, 2, 3, 4), (1, 24), (24,), (3, -1)):
-        check_array(arr.transpose((0, 2, 1)).reshape(shape),
+        check_array(arr.permute((0, 2, 1)).reshape(shape),
                     nparr.transpose((0, 2, 1)).reshape(shape, order="A"))
 
 def test_contiguous():
@@ -43,7 +43,7 @@ def test_contiguous():
     arr = GPUArray(nparr)
     check_array(arr, nparr)
 
-    arr = arr.transpose((0, 2, 1))
+    arr = arr.permute((0, 2, 1))
     nparr = nparr.transpose((0, 2, 1))
     check_array(arr, nparr)
 
@@ -64,12 +64,12 @@ def test_expand():
     nparr_expand = np.tile(nparr, (1, 3, 3))
     assert np.allclose(arr_expand.numpy(), nparr_expand)
 
-def test_transpose():
+def test_permute():
     shape = (2, 3, 4)
     nparr = np.arange(np.prod(shape)).reshape(shape).astype(np.float32)
     arr = GPUArray(nparr)
     check_array(arr.T, nparr.T)
-    check_array(arr.transpose((0, 2, 1)), nparr.transpose((0, 2, 1)))
+    check_array(arr.permute((0, 2, 1)), nparr.transpose((0, 2, 1)))
 
 def test_storage():
     shape = (2, 1, 3)
@@ -80,7 +80,7 @@ def test_storage():
     # expand/tranpose should not change storage of array
     arr2 = arr.expand((2, 3, 3))
     assert np.allclose(arr2.storage(), storage)
-    arr2 = arr.transpose((0, 2, 1))
+    arr2 = arr.permute((0, 2, 1))
     assert np.allclose(arr2.storage(), storage)
 
 def test_squeeze():

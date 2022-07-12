@@ -1,5 +1,3 @@
-"""Network layers and activation layers."""
-
 import numpy as np
 
 from core.initializer import XavierUniformInit
@@ -14,13 +12,10 @@ class Layer:
     def forward(self, inputs):
         raise NotImplementedError
 
-    def gpu(self):
-        self.device = "gpu"
+    def to(self, device):
+        self.device = device
         return self
 
-    def cpu(self):
-        self.device = "cpu"
-        return self
 
 class Dense(Layer):
     def __init__(self,

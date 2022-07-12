@@ -24,7 +24,6 @@ class KernelCounter:
 
 @lru_cache(maxsize=None)
 def cl_build(name, program, options=tuple()):
-    if DEBUG>1: print(f"[DEBUG] miss cache. build {name}")
     if DEBUG>1: print(f"[DEBUG] program {name}: \n {program}")
     cl_kernel = cl.Program(cl_ctx, program).build(tuple(options)).__getattr__(name)
     return lambda *args: cl_kernel(cl_queue, *args)
@@ -57,7 +56,7 @@ def broadcast(a, b):
 
 def unary_op(name, a, ret=None, **kwargs):
     if ret is None:
-        ret = a.__class__(shape=a.shape, dtype=a.dtype)
+        ret = a.__class__(shape=a.shape, dtype=a.dtype)  # TODO
     code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
     op = cl_build("unary_op", f"""__kernel void unary_op(
         {''.join([f'int a_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
@@ -112,12 +111,13 @@ def matmul_op(a, b):
     ret = a.__class__(shape=ret_shape, dtype=a.dtype)
     BS, M, K, N = prod(a.shape[:-2]), a.shape[-2], a.shape[-1], b.shape[-1]
     gs = 1
-    while gs <= 8 and M % gs == 0 and N % gs == 0 and gs <= M and gs <= N: gs *= 2
+    while gs <= 8 and M % gs == 0 and N % gs == 0 and K % gs == 0 and gs <= K and gs <= M and gs <= N:
+        gs *= 2
     gs //= 2
-    if DEBUG>1: print(f"[DEBUG] BS:{BS} M:{M} N:{N} grp_size:{gs}")
+    if DEBUG>1: print(f"[DEBUG] BS:{BS} M:{M} K:{K} N:{N} grp_size:{gs}")
     src = f"""#define GS {gs}
     __kernel void matmul_op(int BS, int M, int N, int K,
-        {''.join(f'int A_s{i}, int B_s{i},' for i in range(3))}
+        {''.join(f'int A_s{i}, int B_s{i}, ' for i in range(3))}
         __global const float *A, __global const float *B, __global float *C) {{
       int bs=get_global_id(0), m=get_global_id(1), n=get_global_id(2), i=get_local_id(1), j=get_local_id(2);
       __local float Alcl[GS][GS], Blcl[GS][GS];

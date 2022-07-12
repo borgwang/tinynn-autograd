@@ -15,10 +15,7 @@ import numpy as np
 from core.evaluator import AccEvaluator
 from core.layers import Dense
 from core.layers import ReLU
-from core.losses import SoftmaxCrossEntropyLoss
-from core.model import Model
-from core.nn import Net
-from core.optimizer import Adam
+from core.nn import Model, Net, Adam, SoftmaxCrossEntropyLoss
 from core.tensor import Tensor
 from utils.data_iterator import BatchIterator
 from utils.downloader import download_url
@@ -88,20 +85,21 @@ def main(args):
 
     train_x = Tensor(train_x)
     train_y = Tensor(train_y)
-    test_x = Tensor(test_x).gpu()
+    test_x = Tensor(test_x).to(args.device)
     test_y = Tensor(test_y)
 
-    net = Net([Dense(256), ReLU(), Dense(128), ReLU(), Dense(64), ReLU(), Dense(32), ReLU(), Dense(10)]).gpu()
+    net = Net([Dense(256), ReLU(), Dense(128), ReLU(), Dense(64), ReLU(), Dense(32), ReLU(), Dense(10)])
+    net = net.to(args.device)
     model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=Adam(lr=args.lr))
     loss_layer = SoftmaxCrossEntropyLoss()
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()
-    from core.ops_gpu import KernelCounter
+    from core.backend.ops_gpu import KernelCounter
     for epoch in range(args.num_ep):
         t_start = time.time()
         for batch in iterator(train_x, train_y):
             model.zero_grad()
-            x, y = batch.inputs.gpu(), batch.targets.gpu()
+            x, y = batch.inputs.to(args.device), batch.targets.to(args.device)
             c1 = sum(KernelCounter.cnt.values())
             pred = model.forward(x)
             c2 = sum(KernelCounter.cnt.values())
@@ -134,5 +132,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--onepass", default=0, type=int)
     parser.add_argument("--eval", default=0, type=int)
+    parser.add_argument("--device", default="gpu", type=str)
     args = parser.parse_args()
     main(args)

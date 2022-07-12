@@ -31,6 +31,10 @@ class Tensor:
         self.outdegree = 0
         self.bwdcost = 0
 
+    def to(self, device):
+        assert device in ("cpu", "gpu"), f"Device {device} not support yet."
+        return getattr(self, device)()
+
     def gpu(self):
         if not self._gpu:
             return Tensor(values=GPUArray(self._values),
@@ -152,8 +156,8 @@ class Tensor:
     def min(self, axis=None):
         return ops.min_(self, axis=axis)
 
-    def transpose(self, axes=None):
-        return ops.transpose_(self, axes=axes)
+    def permute(self, axes=None):
+        return ops.permute_(self, axes=axes)
 
     def log(self):
         return ops.log_(self)
@@ -176,7 +180,7 @@ class Tensor:
 
     @property
     def T(self):
-        return ops.transpose_(self, axes=None)
+        return ops.permute_(self, axes=None)
 
     def backward(self, grad=None):
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
@@ -184,6 +188,10 @@ class Tensor:
         if grad is None:
             grad = GPUArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
             self.outdegree = 0
+        if self._gpu and not isinstance(grad, GPUArray):
+            grad = GPUArray(grad, dtype=self.dtype)
+        if not self._gpu and not isinstance(grad, np.ndarray):
+            grad = np.asarray(grad, dtype=self.dtype)
 
         if self.requires_grad:
             if self.grad is None:
@@ -191,7 +199,7 @@ class Tensor:
             else:
                 self.grad = self.grad + grad
 
-        if not self.outdegree:
+        if self.outdegree <= 0:
             for dep in self.dependency:
                 if GRAPH:
                     grad_for_dep, cost = dep["grad_fn"](self.grad)

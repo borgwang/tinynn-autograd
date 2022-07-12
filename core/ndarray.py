@@ -1,11 +1,10 @@
-import inspect
 import copy
 
 import numpy as np
 import pyopencl as cl
 
-from core.ops_gpu import cl_ctx, cl_queue, cl_rng, alloc_buffer
-from core.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
+from core.backend.ops_gpu import cl_ctx, cl_queue, cl_rng, alloc_buffer
+from core.backend.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
 from utils.math import prod
 
 class GPUArray:
@@ -151,7 +150,7 @@ class GPUArray:
         cl.enqueue_fill_buffer(cl_queue, self.buffer, self.dtype(value), 0, self.size)
         return self
 
-    def transpose(self, axes):
+    def permute(self, axes):
         inst = copy.copy(self)
         inst.strides = tuple(inst.strides[a] for a in axes)
         inst.shape = tuple(inst.shape[a] for a in axes)
@@ -167,7 +166,7 @@ class GPUArray:
     @property
     def T(self):
         axes = tuple(range(self.ndim)[::-1])
-        return self.transpose(axes=axes)
+        return self.permute(axes=axes)
 
     def sum(self, axis=None, keepdims=False):
         if axis is not None: assert self.c_contiguous, "reduce_sum along axis requires c_contiguous!"
