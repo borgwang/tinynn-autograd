@@ -199,16 +199,44 @@ def permute_(ts, axes=None):
     name = genname("permute", ts)
     return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
-# TODO: implement ops below
 def getitem_(ts, key):
     values = ts.values[key]
     def grad_fn(grad):
+        # TODO:
         recover_grad = np.zeros_like(ts.values)
         recover_grad[key] = grad
         return recover_grad
     name = genname("getitem", ts)
     return build_unary_ops_tensor(ts, grad_fn, values, name=name)
 
+def gt_(ts1, ts2):
+    values = ts1.values > ts2.values
+    def grad_fn_ts1(grad):
+        pass  # TODO: zeros
+    def grad_fn_ts2(grad):
+        pass  # TODO: zeros
+    name = genname("gt", ts1, ts2)
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
+
+def eq_(ts1, ts2):
+    values = ts1.values == ts2.values
+    def grad_fn_ts1(grad):
+        pass  # TODO: zeros
+    def grad_fn_ts2(grad):
+        pass  # TODO: zeros
+    name = genname("eq", ts1, ts2)
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
+
+def ge_(ts1, ts2):
+    values = ts1.values >= ts2.values
+    def grad_fn_ts1(grad):
+        pass  # TODO: zeros
+    def grad_fn_ts2(grad):
+        pass  # TODO: zeros
+    name = genname("ge", ts1, ts2)
+    return build_binary_ops_tensor(ts1, ts2, grad_fn_ts1, grad_fn_ts2, values, name=name)
+
+# TODO: implement ops below
 def pad_(ts, pad_width, mode):
     values = np.pad(ts.values, pad_width=pad_width, mode=mode)
     slices = list()
@@ -224,4 +252,5 @@ def flatten_(ts):
     def grad_fn(grad):
         return grad.reshape(shape)
     return build_unary_ops_tensor(ts, grad_fn, values)
+
 

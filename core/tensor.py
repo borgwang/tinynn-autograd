@@ -77,6 +77,15 @@ class Tensor:
                 f"gpu={self._gpu})")
 
     # TODO: programmatically register
+    def __gt__(self, other):
+        return ops.gt_(self, as_tensor(other))
+
+    def __eq__(self, other):
+        return ops.eq_(self, as_tensor(other))
+
+    def __ge__(self, other):
+        return ops.ge_(self, as_tensor(other))
+
     def __add__(self, other):
         return ops.add_(self, as_tensor(other))
 

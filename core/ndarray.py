@@ -6,9 +6,11 @@ import pyopencl as cl
 from core.backend.ops_gpu import cl_ctx, cl_queue, cl_rng, alloc_buffer
 from core.backend.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
 from utils.math import prod
+from utils.dtype import float32
 
 class GPUArray:
-    def __init__(self, data=None, shape=None, dtype=np.float32):
+    # https://numpy.org/doc/stable/dev/internals.html#numpy-internals
+    def __init__(self, data=None, shape=None, dtype=float32):
         if isinstance(data, cl.Buffer):
             self.buffer = data
             assert shape is not None, "cannot infer shape when initialize using clbuffer"
@@ -21,6 +23,7 @@ class GPUArray:
             self.buffer = alloc_buffer(shape, dtype, data)
         self.shape, self.dtype = tuple(shape), dtype
         self.strides = tuple(prod(shape[i+1:]) for i in range(len(shape)))
+        self.offset = 0  # offset relative to the beginning of the buffer
         self.c_contiguous, self.f_contiguous = True, False
         self.update_contiguousness()
         self.register_ops()
@@ -49,6 +52,31 @@ class GPUArray:
         setattr(cls, f"__matmul__", lambda a, b: matmul_op(a, self.as_gpu_array(b)))
         setattr(cls, f"__neg__", lambda a: unary_op("neg", a))
 
+    def __getitem__(self, key):
+        # TODO:
+        # 1. check if key is valid
+        # 2. handle step
+        is_basic = lambda k: isinstance(k, (slice, int))
+        assert is_basic(key) or all(is_basic(k) for k in key), \
+                f"Advantage indexing not supported yet. {key}"
+        key = (key,) if is_basic(key) else key
+        inst = copy.copy(self)
+        reduce = []
+        shape = list(inst.shape)
+        for i, k in enumerate(key):
+            if isinstance(k, int):  # indexing
+                inst.offset += inst.strides[i] * k
+                reduce.append(i)
+            if isinstance(k, slice):  # slicing
+                start = 0 if k.start is None else k.start
+                stop = inst.shape[i] if k.stop is None else k.stop
+                shape[i] = stop - start
+                inst.offset += inst.strides[i] * start
+                inst.c_contiguous, inst.f_contiguous = False, False  # TODO
+        inst.shape = tuple(s for i, s in enumerate(shape) if i not in reduce)
+        inst.strides = tuple(s for i, s in enumerate(inst.strides) if i not in reduce)
+        return inst
+
     @property
     def size(self):
         return self.buffer.size
@@ -58,19 +86,19 @@ class GPUArray:
         return len(self.shape)
 
     @classmethod
-    def empty(cls, shape, dtype=np.float32):
+    def empty(cls, shape, dtype=float32):
         return cls(shape=shape, dtype=dtype)
 
     @classmethod
-    def zeros(cls, shape, dtype=np.float32):
+    def zeros(cls, shape, dtype=float32):
         return cls(shape=shape, dtype=dtype).fill(0)
 
     @classmethod
-    def ones(cls, shape, dtype=np.float32):
+    def ones(cls, shape, dtype=float32):
         return cls(shape=shape, dtype=dtype).fill(1)
 
     @classmethod
-    def full(cls, shape, value, dtype=np.float32):
+    def full(cls, shape, value, dtype=float32):
         return cls(shape=shape, dtype=dtype).fill(value)
 
     @classmethod
@@ -78,12 +106,12 @@ class GPUArray:
         return cls(data=arr)
 
     @classmethod
-    def uniform(cls, a, b, shape, dtype=np.float32):
+    def uniform(cls, a, b, shape, dtype=float32):
         buffer = cl_rng.uniform(a=a, b=b, shape=shape, dtype=dtype, cq=cl_queue).data
         return cls(data=buffer, shape=shape, dtype=dtype)
 
     @classmethod
-    def normal(cls, loc, scale, shape, dtype=np.float32):
+    def normal(cls, loc, scale, shape, dtype=float32):
         buffer = cl_rng.normal(mu=loc, sigma=scale, shape=shape, dtype=dtype, cq=cl_queue).data
         return cls(data=buffer, shape=shape, dtype=dtype)
 
@@ -169,12 +197,12 @@ class GPUArray:
         return self.permute(axes=axes)
 
     def sum(self, axis=None, keepdims=False):
-        if axis is not None: assert self.c_contiguous, "reduce_sum along axis requires c_contiguous!"
-        return reduce_op("sum", self, axis=axis, keepdims=keepdims)
+        arr = self.contiguous() if not self.c_contiguous else self
+        return reduce_op("sum", arr, axis=axis, keepdims=keepdims)
 
     def max(self, axis=None, keepdims=False):
-        if axis is not None: assert self.c_contiguous, "reduce_max along axis requires c_contiguous!"
-        return reduce_op("max", self, axis=axis, keepdims=keepdims)
+        arr = self.contiguous() if not self.c_contiguous else self
+        return reduce_op("max", arr, axis=axis, keepdims=keepdims)
 
     def relu(self, inplace=False):
         return unary_op("relu", self, ret=self if inplace else None)

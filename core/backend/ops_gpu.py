@@ -5,6 +5,7 @@ import numpy as np
 import pyopencl as cl
 from pyopencl.clrandom import PhiloxGenerator as RNG
 from utils.math import prod
+from utils.dtype import int32
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -60,13 +61,13 @@ def unary_op(name, a, ret=None, **kwargs):
     code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
     op = cl_build("unary_op", f"""__kernel void unary_op(
         {''.join([f'int a_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
-        __global const float *A, __global float *B) {{
+        int ofst, __global const float *A, __global float *B) {{
       int a_i=0, idx=0, gl_id=get_global_id(0); int ptr=gl_id;
       {''.join([f'idx=ptr/res_s{i}; ptr%=res_s{i}; a_i+=idx*a_s{i};' for i in range(a.ndim)])}
-      float a=A[a_i];
+      float a=A[a_i+ofst];
       B[gl_id]={code_map[name]};
     }}""")
-    args = [np.int32(s) for ss in zip(a.strides, ret.strides) for s in ss]
+    args = [int32(s) for ss in zip(a.strides, ret.strides) for s in ss] + [int32(a.offset)]
     e = op((prod(a.shape),), None, *args, a.buffer, ret.buffer)
     if GRAPH: e.wait()
     KernelCounter.cnt["unary"] += 1
@@ -79,13 +80,14 @@ def binary_op(name, a, b, ret=None):
     code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)", "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)", "drelu": "b>0?a:0.0f"}
     op = cl_build("binary_op", f"""__kernel void binary_op(
         {''.join([f'int a_s{i},int b_s{i},int res_s{i},' for i in range(a.ndim)])}
-        __global const float *A, __global const float *B, __global float *C) {{
+        int a_ofst, int b_ofst, __global const float *A, __global const float *B, __global float *C) {{
       int a_i=0, b_i=0, idx=0, gl_id=get_global_id(0); int ptr=gl_id;
       {''.join(f'idx=ptr/res_s{i}; ptr%=res_s{i}; a_i+=idx*a_s{i}; b_i+=idx*b_s{i};' for i in range(a.ndim))}
-      float a=A[a_i], b=B[b_i];
+      float a=A[a_i+a_ofst], b=B[b_i+b_ofst];
       C[gl_id] = {code_map[name]};
     }}""")
-    args = [np.int32(s) for ss in zip(a.strides, b.strides, ret.strides) for s in ss]
+    args = [int32(s) for ss in zip(a.strides, b.strides, ret.strides) for s in ss]
+    args += [int32(a.offset), int32(b.offset)]
     e = op((prod(a.shape),), None, *args, a.buffer, b.buffer, ret.buffer)
     if GRAPH: e.wait()
     KernelCounter.cnt["binary"] += 1
@@ -117,14 +119,14 @@ def matmul_op(a, b):
     if DEBUG>1: print(f"[DEBUG] BS:{BS} M:{M} K:{K} N:{N} grp_size:{gs}")
     src = f"""#define GS {gs}
     __kernel void matmul_op(int BS, int M, int N, int K,
-        {''.join(f'int A_s{i}, int B_s{i}, ' for i in range(3))}
+        {''.join(f'int A_s{i}, int B_s{i}, ' for i in range(3))} int a_ofst, int b_ofst,
         __global const float *A, __global const float *B, __global float *C) {{
       int bs=get_global_id(0), m=get_global_id(1), n=get_global_id(2), i=get_local_id(1), j=get_local_id(2);
       __local float Alcl[GS][GS], Blcl[GS][GS];
       float acc = 0.0f;
       for (int t=0; t<K/GS; t++) {{
-        Alcl[i][j] = A[bs*A_s0+m*A_s1+(t*GS+j)*A_s2];
-        Blcl[i][j] = B[bs*B_s0+(t*GS+i)*B_s1+n*B_s2];
+        Alcl[i][j] = A[bs*A_s0+m*A_s1+(t*GS+j)*A_s2+a_ofst];
+        Blcl[i][j] = B[bs*B_s0+(t*GS+i)*B_s1+n*B_s2+b_ofst];
         barrier(CLK_LOCAL_MEM_FENCE);
         for (int k=0; k<GS; k++) acc += Alcl[i][k] * Blcl[k][j];
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -133,7 +135,7 @@ def matmul_op(a, b):
     }}"""
     op = cl_build("matmul_op", src)
     strides = [s for ss in zip(a.strides, b.strides) for s in ss]
-    args = [np.int32(a) for a in [BS, M, N, K] + strides]
+    args = [int32(x) for x in [BS, M, N, K] + strides + [a.offset, b.offset]]
     e = op((BS, M, N), (1, gs, gs), *args, a.buffer, b.buffer, ret.buffer)
     if GRAPH: e.wait()
     KernelCounter.cnt["matmul"] += 1
@@ -142,26 +144,28 @@ def matmul_op(a, b):
     return ret
 
 def contiguous_op(x):
-    if not x.ndim: return x
     ret = x.__class__(shape=x.shape, dtype=x.dtype)
-    args = ",".join([f"int a{i},int b{i}" for i in range(x.ndim)])
-    def_strides = "".join([f"int _s{i}="+"*".join(f"a{j}" for j in range(i+1, x.ndim)) + ";" for i in range(x.ndim-1)])
-    def_strides += f"int _s{x.ndim-1}=1;"
-    def_indices = "".join(f"int _i{i}=curr/_s{i}; curr%=_s{i}; " for i in range(x.ndim))
-    addr = "+".join([f"b{i}*_i{i}" for i in range(x.ndim)])
-    src = f"""__kernel void contiguous_op({args},__global const float *A, __global float *B) {{
+    x_ndim, x_shape, x_strides = x.ndim, x.shape, x.strides
+    if not x_ndim:
+        x_ndim, x_shape, x_strides = 1, (1,), (1,)
+    def_args = "".join([f"int a{i}, int b{i}, " for i in range(x_ndim)])
+    def_args += "int ofst"
+    def_strides = "".join([f"int _s{i}="+"*".join(f"a{j}" for j in range(i+1, x_ndim)) + ";" for i in range(x_ndim-1)])
+    def_strides += f"int _s{x_ndim-1}=1;"
+    def_indices = "".join(f"int _i{i}=curr/_s{i}; curr%=_s{i}; " for i in range(x_ndim))
+    addr = "+".join([f"b{i}*_i{i}" for i in range(x_ndim)])
+    src = f"""__kernel void contiguous_op({def_args}, __global const float *A, __global float *B) {{
       int curr = get_global_id(0);
       {def_strides} {def_indices}
-      B[get_global_id(0)] = A[{addr}];
+      B[get_global_id(0)] = A[{addr}+ofst];
     }}"""
     op = cl_build("contiguous_op", src)
-    args = [np.int32(s) for ss in zip(x.shape, x.strides) for s in ss]
-    e = op((prod(x.shape),), None, *args, x.buffer, ret.buffer)
+    args = [int32(s) for ss in zip(x_shape, x_strides) for s in ss]
+    e = op((prod(x_shape),), None, *args, int32(x.offset), x.buffer, ret.buffer)
     if GRAPH: e.wait()
     KernelCounter.cnt["contig"] += 1
     return ret
 
-#@profile
 def reduce_op(name, x, axis=None, keepdims=True):
     code_map = {"sum": "a+b", "max": "max(a,b)", "min": "min(a,b)"}
     padval_map = {"sum": "0.0f", "max": "-INFINITY", "min": "INFINITY"}
@@ -201,10 +205,11 @@ def reduce_op(name, x, axis=None, keepdims=True):
     lcl2gl = "+".join([f"{a_}*{c_}" for a_, c_ in zip(a, c)])
     # NOTE: calculate offset to get the proper global index
     offset = f"gl_id_0*{'0' if axis==0 else '1' if axis==ndim-1 else 'gl_s_2'}*(gl_s_{axis}-size)"
-    op = cl_build("reduce_op", f"""__kernel void reduce_op(int size, __global const float *A, __local float *B, __global float *C) {{
+    op = cl_build("reduce_op", f"""__kernel void reduce_op(int size, int ofst,
+        __global const float *A, __local float *B, __global float *C) {{
       {''.join([f'int gl_id_{i}=get_global_id({i});int gl_s_{i}=get_global_size({i});int grp_id_{i}=get_group_id({i});int grp_s_{i}=get_local_size({i});' for i in range(ndim)])}
       int lcl_id=get_local_id({axis});
-      B[lcl_id] = gl_id_{axis}<size?A[{gl2lcl}-{offset}]:{padval_map[name]};
+      B[lcl_id] = gl_id_{axis}<size?A[{gl2lcl}-{offset}+ofst]:{padval_map[name]};
       barrier(CLK_LOCAL_MEM_FENCE);
       for (int stride=grp_s_{axis}>>1; stride>0; stride>>=1) {{
         float a = B[lcl_id], b = B[lcl_id+stride];
@@ -215,7 +220,7 @@ def reduce_op(name, x, axis=None, keepdims=True):
     }}""")
     local_mem = cl.LocalMemory(x.dtype().itemsize * grp_size)
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
-    e = op(global_size, local_size, np.int32(size), x.buffer, local_mem, ret.buffer)
+    e = op(global_size, local_size, int32(size), int32(x.offset), x.buffer, local_mem, ret.buffer)
     if GRAPH: e.wait()
     KernelCounter.cnt["reduce"] += 1
     if DEBUG>1: print(f"[DEBUG] x_shp: {x_shp} ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
