@@ -58,13 +58,14 @@ def broadcast(a, b):
 def unary_op(name, a, ret=None, **kwargs):
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)  # TODO
-    code_map = {"neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
+    assert ret.c_contiguous, f"ret must be contiguous. {ret}"
+    code_map = {"noop": "a", "neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
     op = cl_build("unary_op", f"""__kernel void unary_op(
         {''.join([f'int a_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
-        int ofst, __global const float *A, __global float *B) {{
+        int a_ofst, __global const float *A, __global float *B) {{
       int a_i=0, idx=0, gl_id=get_global_id(0); int ptr=gl_id;
       {''.join([f'idx=ptr/res_s{i}; ptr%=res_s{i}; a_i+=idx*a_s{i};' for i in range(a.ndim)])}
-      float a=A[a_i+ofst];
+      float a=A[a_i+a_ofst];
       B[gl_id]={code_map[name]};
     }}""")
     args = [int32(s) for ss in zip(a.strides, ret.strides) for s in ss] + [int32(a.offset)]
@@ -77,17 +78,19 @@ def binary_op(name, a, b, ret=None):
     a, b = broadcast(a, b)
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
+    assert ret.c_contiguous, f"ret must be contiguous. {ret}"
+    ret_strides = (1,) if not ret.strides else ret.strides
     code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)", "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)", "drelu": "b>0?a:0.0f"}
     op = cl_build("binary_op", f"""__kernel void binary_op(
-        {''.join([f'int a_s{i},int b_s{i},int res_s{i},' for i in range(a.ndim)])}
+        {''.join([f'int a_s{i}, int b_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
         int a_ofst, int b_ofst, __global const float *A, __global const float *B, __global float *C) {{
       int a_i=0, b_i=0, idx=0, gl_id=get_global_id(0); int ptr=gl_id;
       {''.join(f'idx=ptr/res_s{i}; ptr%=res_s{i}; a_i+=idx*a_s{i}; b_i+=idx*b_s{i};' for i in range(a.ndim))}
       float a=A[a_i+a_ofst], b=B[b_i+b_ofst];
       C[gl_id] = {code_map[name]};
     }}""")
-    args = [int32(s) for ss in zip(a.strides, b.strides, ret.strides) for s in ss]
-    args += [int32(a.offset), int32(b.offset)]
+    args = [int32(s) for ss in zip(a.strides, b.strides, ret_strides) for s in ss]
+    args += [int32(s) for s in [a.offset, b.offset]]
     e = op((prod(a.shape),), None, *args, a.buffer, b.buffer, ret.buffer)
     if GRAPH: e.wait()
     KernelCounter.cnt["binary"] += 1
@@ -111,6 +114,7 @@ def matmul_op(a, b):
     assert a.shape[0] == b.shape[0] and a.shape[2] == b.shape[1], \
             f"invalid shape for matmul {a.shape} @ {b.shape}"
     ret = a.__class__(shape=ret_shape, dtype=a.dtype)
+    assert ret.c_contiguous, f"ret must be contiguous. {ret}"
     BS, M, K, N = prod(a.shape[:-2]), a.shape[-2], a.shape[-1], b.shape[-1]
     gs = 1
     while gs <= 8 and M % gs == 0 and N % gs == 0 and K % gs == 0 and gs <= K and gs <= M and gs <= N:

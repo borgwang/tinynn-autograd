@@ -16,7 +16,6 @@ def test_add_op():
         t3.backward([2, 2, 2])
         assert np.allclose(t1.grad.numpy(), [2, 2, 2])
         assert np.allclose(t2.grad.numpy(), [2, 2, 2])
-
         # broadcast (2, 3) + (3,) -> (2, 3)
         t1 = Tensor([[1, 3, 5], [2, 3, 0]], requires_grad=True).to(device)
         t2 = Tensor([5, -2, -9], requires_grad=True).to(device)
@@ -25,7 +24,6 @@ def test_add_op():
         t3.backward([[1, 1, 1], [2, 2, 2]])
         assert np.allclose(t1.grad.numpy(), [[1, 1, 1], [2, 2, 2]])
         assert np.allclose(t2.grad.numpy(), [3, 3, 3])
-
         # broadcast (2, 3) + (1, 3) -> (2, 3)
         t1 = Tensor([[1, 3, 5], [2, 3, 0]], requires_grad=True).to(device)
         t2 = Tensor([[5, -2, -9]], requires_grad=True).to(device)
@@ -194,4 +192,19 @@ def test_slice():
         assert np.allclose(t[s].sum().numpy(), data[s].sum())
         assert np.allclose(t[s].sum(axis=1).numpy(), data[s].sum(axis=1))
         assert np.allclose(t[s].max(axis=0, keepdims=True).numpy(), data[s].max(axis=0, keepdims=True))
+        """
+        # backprop
+        data = np.arange(16).reshape((4, 4)).astype(np.float32)
+        t = Tensor(data, requires_grad=True).to(device)
+        s = (slice(1,3), slice(1,3))
+        t2 = t[s]
+        t2.backward()
+        grad = np.zeros(t.shape).astype(np.float32)
+        grad[s] = 1.0
+        print(t.grad.numpy())
+        print(grad)
+        assert np.allclose(t.grad.numpy(), grad)
+        import pdb; pdb.set_trace()
+        """
+
 

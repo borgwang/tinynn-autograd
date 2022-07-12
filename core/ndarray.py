@@ -53,9 +53,7 @@ class GPUArray:
         setattr(cls, f"__neg__", lambda a: unary_op("neg", a))
 
     def __getitem__(self, key):
-        # TODO:
-        # 1. check if key is valid
-        # 2. handle step
+        # TODO: handle step
         is_basic = lambda k: isinstance(k, (slice, int))
         assert is_basic(key) or all(is_basic(k) for k in key), \
                 f"Advantage indexing not supported yet. {key}"
@@ -65,17 +63,27 @@ class GPUArray:
         shape = list(inst.shape)
         for i, k in enumerate(key):
             if isinstance(k, int):  # indexing
+                if k < 0: k += inst.shape[i]
+                assert 0 <= k < inst.shape[i], f"Invalid indexing {key[i]} for tensor {inst.shape}"
                 inst.offset += inst.strides[i] * k
                 reduce.append(i)
             if isinstance(k, slice):  # slicing
                 start = 0 if k.start is None else k.start
+                if start < 0: start += inst.shape[i]
                 stop = inst.shape[i] if k.stop is None else k.stop
+                if stop < 0: stop += inst.shape[i]
+                assert 0 <= start < stop <= inst.shape[i], f"Invalid slicing {key[i]} for tensor {inst.shape}"
                 shape[i] = stop - start
                 inst.offset += inst.strides[i] * start
-                inst.c_contiguous, inst.f_contiguous = False, False  # TODO
+                inst.c_contiguous, inst.f_contiguous = False, False  # TODO: is still contiguous under certain conditions
         inst.shape = tuple(s for i, s in enumerate(shape) if i not in reduce)
         inst.strides = tuple(s for i, s in enumerate(inst.strides) if i not in reduce)
         return inst
+
+    def __setitem__(self, key, value):
+        item = self[key]
+        # TODO: assign ops
+        # unary_op("noop", value, ret=item)
 
     @property
     def size(self):

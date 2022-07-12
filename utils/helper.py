@@ -8,3 +8,5 @@ def timer(func):
         return ret, cost
     return wrapper
 
+def genname(prefix, *args):
+    return f"{prefix}_" + "_".join(str(id(ts))[-4:] for ts in args)

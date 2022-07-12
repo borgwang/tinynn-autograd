@@ -1,5 +1,6 @@
 import runtime_path  # isort:skip
 
+import pytest
 import numpy as np
 from core.tensor import Tensor
 
@@ -10,7 +11,6 @@ rnd = lambda shape: np.abs(np.random.normal(1, 1, shape)).astype(np.float32)
 def check_tensor(a, b, atol=0, rtol=1e-4):
     assert a.shape == b.shape
     assert np.allclose(a.numpy(), b, atol=atol, rtol=rtol, equal_nan=True)
-
 
 def test_binary():
     shape = (10, 2, 3, 4)
@@ -42,9 +42,12 @@ def test_comparison_operators():
     rndint = lambda s: np.random.randint(0, 10, size=s).astype(np.float32)
     npa, npb = rndint(shape), rndint(shape)
     for device in ("gpu",):
-        a, b = getattr(Tensor(npa), device)(), getattr(Tensor(npb), device)()
+        a, b = getattr(Tensor(npa, requires_grad=True), device)(), getattr(Tensor(npb, requires_grad=True), device)()
         check_tensor(a==b, (npa==npb).astype(np.float32))
         check_tensor(a>b, (npa>npb).astype(np.float32))
         check_tensor(a>=b, (npa>=npb).astype(np.float32))
         check_tensor(a<b, (npa<npb).astype(np.float32))
         check_tensor(a<=b, (npa<=npb).astype(np.float32))
+        # comparison operator is not differentiable
+        with pytest.raises(Exception):
+            (a > b).backward()
