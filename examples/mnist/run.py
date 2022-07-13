@@ -20,10 +20,9 @@ from core.nn.optimizer import Adam
 from core.tensor import Tensor
 from utils.data_iterator import BatchIterator
 from utils.downloader import download_url
+from env import DEBUG, GRAPH
 
 import networkx as nx
-GRAPH = int(os.getenv("GRAPH", "0"))
-DEBUG = int(os.getenv("DEBUG", "0"))
 
 def get_one_hot(targets, nb_classes):
     return np.eye(nb_classes)[np.array(targets).reshape(-1)]

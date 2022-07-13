@@ -1,40 +1,47 @@
 from functools import lru_cache
+import copy
 from collections import defaultdict
-import os
 import numpy as np
-import pyopencl as cl
-from pyopencl.clrandom import PhiloxGenerator as RNG
+import pyopencl
+
+from env import DEBUG, GRAPH
 from utils.math import prod
-from utils.dtype import int32
+from utils.dtype import int32, float32
+from core.backend.base import Array
 
-import warnings
-warnings.filterwarnings("ignore")
-DEBUG = int(os.getenv("DEBUG", "0"))
-GRAPH = int(os.getenv("GRAPH", "0"))
+class CLContext:
+    def __init__(self):
+        self.ctx, self.queue = None, None
+        platform = pyopencl.get_platforms()[0]
+        devices = platform.get_devices(device_type=pyopencl.device_type.GPU)
+        if len(devices) == 0:
+            devices = platform.get_devices(device_type=pyopencl.device_type.CPU)
+        self.ctx = pyopencl.Context(devices)
+        self.queue = pyopencl.CommandQueue(self.ctx)
+        # random number generator
+        import pyopencl.clrandom as clrandom
+        self.rng = clrandom.PhiloxGenerator(self.ctx)
 
-cl_ctx, cl_queue = None, None
-devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.GPU)
-if len(devices) == 0:
-    devices = cl.get_platforms()[0].get_devices(device_type=cl.device_type.CPU)
-cl_ctx = cl.Context(devices)
-cl_queue = cl.CommandQueue(cl_ctx, device=devices[-1])
-cl_rng = RNG(cl_ctx)
+    @lru_cache(maxsize=None)
+    def build(self, name, program):
+        if DEBUG>1: print(f"[DEBUG] program {name}: \n {program}")
+        kernel = pyopencl.Program(self.ctx, program).build().__getattr__(name)
+        return lambda *args: kernel(self.queue, *args)
+
+    def alloc_buffer(self, shape, dtype, hostbuf=None):
+        size = int(dtype().itemsize * prod(shape))
+        flags = pyopencl.mem_flags.READ_WRITE
+        if hostbuf is not None:
+            flags |= pyopencl.mem_flags.COPY_HOST_PTR
+        return pyopencl.Buffer(self.ctx, flags, size, hostbuf=hostbuf)
+
+    def alloc_local_memory(self, size):
+        return pyopencl.LocalMemory(size)
+
+cl = CLContext()
 
 class KernelCounter:
     cnt = defaultdict(int)
-
-@lru_cache(maxsize=None)
-def cl_build(name, program, options=tuple()):
-    if DEBUG>1: print(f"[DEBUG] program {name}: \n {program}")
-    cl_kernel = cl.Program(cl_ctx, program).build(tuple(options)).__getattr__(name)
-    return lambda *args: cl_kernel(cl_queue, *args)
-
-def alloc_buffer(shape, dtype, hostbuf=None):
-    size = int(dtype().itemsize * prod(shape))
-    flags = cl.mem_flags.READ_WRITE
-    if hostbuf is not None:
-        flags |= cl.mem_flags.COPY_HOST_PTR
-    return cl.Buffer(cl_ctx, flags, size, hostbuf=hostbuf)
 
 def broadcast(a, b):
     # rule: https://numpy.org/doc/stable/user/basics.broadcasting.html
@@ -60,7 +67,7 @@ def unary_op(name, a, ret=None, **kwargs):
         ret = a.__class__(shape=a.shape, dtype=a.dtype)  # TODO
     assert ret.c_contiguous, f"ret must be contiguous. {ret}"
     code_map = {"noop": "a", "neg": "-a", "log": "log(a)", "exp": "exp(a)", "relu": "max(a, 0.0f)", "sign": "sign(a)"}
-    op = cl_build("unary_op", f"""__kernel void unary_op(
+    op = cl.build("unary_op", f"""__kernel void unary_op(
         {''.join([f'int a_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
         int a_ofst, __global const float *A, __global float *B) {{
       int a_i=0, idx=0, gl_id=get_global_id(0); int ptr=gl_id;
@@ -81,7 +88,7 @@ def binary_op(name, a, b, ret=None):
     assert ret.c_contiguous, f"ret must be contiguous. {ret}"
     ret_strides = (1,) if not ret.strides else ret.strides
     code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)", "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)", "drelu": "b>0?a:0.0f"}
-    op = cl_build("binary_op", f"""__kernel void binary_op(
+    op = cl.build("binary_op", f"""__kernel void binary_op(
         {''.join([f'int a_s{i}, int b_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
         int a_ofst, int b_ofst, __global const float *A, __global const float *B, __global float *C) {{
       int a_i=0, b_i=0, idx=0, gl_id=get_global_id(0); int ptr=gl_id;
@@ -137,7 +144,7 @@ def matmul_op(a, b):
       }}
       C[bs*M*N+m*N+n] = acc;
     }}"""
-    op = cl_build("matmul_op", src)
+    op = cl.build("matmul_op", src)
     strides = [s for ss in zip(a.strides, b.strides) for s in ss]
     args = [int32(x) for x in [BS, M, N, K] + strides + [a.offset, b.offset]]
     e = op((BS, M, N), (1, gs, gs), *args, a.buffer, b.buffer, ret.buffer)
@@ -163,7 +170,7 @@ def contiguous_op(x):
       {def_strides} {def_indices}
       B[get_global_id(0)] = A[{addr}+ofst];
     }}"""
-    op = cl_build("contiguous_op", src)
+    op = cl.build("contiguous_op", src)
     args = [int32(s) for ss in zip(x_shape, x_strides) for s in ss]
     e = op((prod(x_shape),), None, *args, int32(x.offset), x.buffer, ret.buffer)
     if GRAPH: e.wait()
@@ -186,7 +193,7 @@ def reduce_op(name, x, axis=None, keepdims=True):
         return tuple(n_grps if i == axis else d for i, d in enumerate(x_shp))
 
     grp_size = 2
-    max_work_group_size = cl_queue.device.max_work_group_size
+    max_work_group_size = cl.queue.device.max_work_group_size
     while grp_size != max_work_group_size and grp_size < size:
         grp_size *= 2
     n_grps = (size + grp_size - 1) // grp_size
@@ -209,7 +216,7 @@ def reduce_op(name, x, axis=None, keepdims=True):
     lcl2gl = "+".join([f"{a_}*{c_}" for a_, c_ in zip(a, c)])
     # NOTE: calculate offset to get the proper global index
     offset = f"gl_id_0*{'0' if axis==0 else '1' if axis==ndim-1 else 'gl_s_2'}*(gl_s_{axis}-size)"
-    op = cl_build("reduce_op", f"""__kernel void reduce_op(int size, int ofst,
+    op = cl.build("reduce_op", f"""__kernel void reduce_op(int size, int ofst,
         __global const float *A, __local float *B, __global float *C) {{
       {''.join([f'int gl_id_{i}=get_global_id({i});int gl_s_{i}=get_global_size({i});int grp_id_{i}=get_group_id({i});int grp_s_{i}=get_local_size({i});' for i in range(ndim)])}
       int lcl_id=get_local_id({axis});
@@ -222,7 +229,7 @@ def reduce_op(name, x, axis=None, keepdims=True):
       }}
       if (lcl_id == 0) C[{lcl2gl}]=B[0];
     }}""")
-    local_mem = cl.LocalMemory(x.dtype().itemsize * grp_size)
+    local_mem = cl.alloc_local_memory(x.dtype().itemsize * grp_size)
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
     e = op(global_size, local_size, int32(size), int32(x.offset), x.buffer, local_mem, ret.buffer)
     if GRAPH: e.wait()
@@ -231,4 +238,212 @@ def reduce_op(name, x, axis=None, keepdims=True):
     if n_grps > 1:
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)  # recursive reduce (inefficient)
     return ret
+
+
+class CLArray(Array):
+    # https://numpy.org/doc/stable/dev/internals.html#numpy-internals
+    def __init__(self, data=None, shape=None, dtype=float32):
+        if isinstance(data, pyopencl.Buffer):
+            self.buffer = data
+            assert shape is not None, "cannot infer shape when initialize using clbuffer"
+        else:
+            if data is not None:
+                data = np.asarray(data, dtype=dtype)
+                shape = data.shape
+            else:
+                assert shape is not None, "cannot infer shape when without data"
+            self.buffer = cl.alloc_buffer(shape, dtype, data)
+        self.shape, self.dtype = tuple(shape), dtype
+        self.strides = tuple(prod(shape[i+1:]) for i in range(len(shape)))
+        self.offset = 0  # offset relative to the beginning of the buffer
+        self.c_contiguous, self.f_contiguous = True, False
+        self.update_contiguousness()
+        self.register_ops()
+
+    @staticmethod
+    def as_gpu_array(obj):
+        if not isinstance(obj, CLArray):
+            obj = CLArray(obj)
+        return obj
+
+    @property
+    def size(self):
+        return self.buffer.size
+
+    @property
+    def ndim(self):
+        return len(self.shape)
+
+    def __repr__(self):
+        return (f"<CLArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} contiguous={self.c_contiguous}>")
+
+    def register_ops(self):
+        cls = self.__class__
+        for op in ("add", "sub", "mul", "truediv", "pow"):
+            setattr(cls, f"__{op}__",
+                    (lambda op: lambda a, b: binary_op(op, a, self.as_gpu_array(b)))(op))
+            setattr(cls, f"__i{op}__",
+                    (lambda op: lambda a, b: binary_op(op, a, self.as_gpu_array(b), ret=a))(op))
+            setattr(cls, f"__r{op}__",
+                    (lambda op: lambda a, b: binary_op(op, self.as_gpu_array(b), a))(op))
+        for op in ("eq", "ge", "gt"):
+            setattr(cls, f"__{op}__",
+                    (lambda op: lambda a, b: binary_op(op, a, self.as_gpu_array(b)))(op))
+        setattr(cls, f"__matmul__", lambda a, b: matmul_op(a, self.as_gpu_array(b)))
+        setattr(cls, f"__neg__", lambda a: unary_op("neg", a))
+
+    def sum(self, axis=None, keepdims=False):
+        arr = self.contiguous() if not self.c_contiguous else self
+        return reduce_op("sum", arr, axis=axis, keepdims=keepdims)
+
+    def max(self, axis=None, keepdims=False):
+        arr = self.contiguous() if not self.c_contiguous else self
+        return reduce_op("max", arr, axis=axis, keepdims=keepdims)
+
+    def relu(self, inplace=False):
+        return unary_op("relu", self, ret=self if inplace else None)
+
+    def exp(self):
+        return unary_op("exp", self)
+
+    def log(self):
+        return unary_op("log", self)
+
+    def drelu(self, other):
+        return binary_op("drelu", self, self.as_gpu_array(other))
+
+    def __getitem__(self, key):
+        # TODO: handle step
+        is_basic = lambda k: isinstance(k, (slice, int))
+        assert is_basic(key) or all(is_basic(k) for k in key), \
+                f"Advantage indexing not supported yet. {key}"
+        key = (key,) if is_basic(key) else key
+        inst = copy.copy(self)
+        reduce = []
+        shape = list(inst.shape)
+        for i, k in enumerate(key):
+            if isinstance(k, int):  # indexing
+                if k < 0: k += inst.shape[i]
+                assert 0 <= k < inst.shape[i], f"Invalid indexing {key[i]} for tensor {inst.shape}"
+                inst.offset += inst.strides[i] * k
+                reduce.append(i)
+            if isinstance(k, slice):  # slicing
+                start = 0 if k.start is None else k.start
+                if start < 0: start += inst.shape[i]
+                stop = inst.shape[i] if k.stop is None else k.stop
+                if stop < 0: stop += inst.shape[i]
+                assert 0 <= start < stop <= inst.shape[i], f"Invalid slicing {key[i]} for tensor {inst.shape}"
+                shape[i] = stop - start
+                inst.offset += inst.strides[i] * start
+                inst.c_contiguous, inst.f_contiguous = False, False  # TODO: is still contiguous under certain conditions
+        inst.shape = tuple(s for i, s in enumerate(shape) if i not in reduce)
+        inst.strides = tuple(s for i, s in enumerate(inst.strides) if i not in reduce)
+        return inst
+
+    def __setitem__(self, key, value):
+        item = self[key]
+        # unary_op("noop", value, ret=item)
+        assert False, "TODO: implement assign ops"
+
+    @classmethod
+    def empty(cls, shape, dtype=float32):
+        return cls(shape=shape, dtype=dtype)
+
+    @classmethod
+    def zeros(cls, shape, dtype=float32):
+        return cls(shape=shape, dtype=dtype).fill(0)
+
+    @classmethod
+    def ones(cls, shape, dtype=float32):
+        return cls(shape=shape, dtype=dtype).fill(1)
+
+    @classmethod
+    def full(cls, shape, value, dtype=float32):
+        return cls(shape=shape, dtype=dtype).fill(value)
+
+    @classmethod
+    def uniform(cls, a, b, shape, dtype=float32):
+        buffer = cl.rng.uniform(a=a, b=b, shape=shape, dtype=dtype, cq=cl.queue).data
+        return cls(data=buffer, shape=shape, dtype=dtype)
+
+    @classmethod
+    def normal(cls, loc, scale, shape, dtype=float32):
+        buffer = cl.rng.normal(mu=loc, sigma=scale, shape=shape, dtype=dtype, cq=cl.queue).data
+        return cls(data=buffer, shape=shape, dtype=dtype)
+
+    def numpy(self):
+        data = np.empty(self.shape, dtype=self.dtype)
+        pyopencl.enqueue_copy(cl.queue, data, self.contiguous().buffer, is_blocking=True)
+        return data
+
+    def contiguous(self):
+        return contiguous_op(self)
+
+    def reshape(self, shape):
+        if -1 in shape:
+            size = prod(self.shape)
+            assert shape.count(-1) <= 1, "Only one dimension can be inferred"
+            axis = shape.index(-1)
+            infer = prod([s for s in shape if s != -1])
+            assert size % infer == 0, f"Shape {shape} invalid for size {size}"
+            shape = (*shape[:axis], size // infer, *shape[axis+1:])
+
+        assert prod(shape) == prod(self.shape), f"Can not reshape {self.shape} to {shape}"
+        if self.c_contiguous or self.f_contiguous:
+            inst = copy.copy(self)
+            if self.c_contiguous:
+                strides = (prod(shape[i+1:]) for i in range(len(shape)))
+            else:
+                strides = (prod(shape[:i]) for i in range(len(shape)))
+            inst.shape, inst.strides = tuple(shape), tuple(strides)
+            inst.update_contiguousness()
+        else:
+            inst = self.contiguous().reshape(shape)
+        return inst
+
+    def expand(self, shape):
+        inst = copy.copy(self)
+        assert len(shape) == inst.ndim
+        strides = []
+        for i, (s1, s2) in enumerate(zip(inst.shape, shape)):
+            if s1 < s2:
+                assert s1 == 1
+            strides.append(0 if s1 < s2 else inst.strides[i])
+        inst.shape, inst.strides = tuple(shape), tuple(strides)
+        inst.c_contiguous, inst.f_contiguous = False, False
+        return inst
+
+    def squeeze(self, axis=None):
+        if axis is None:
+            axis = [i for i, s in enumerate(self.shape) if s == 1]
+        elif isinstance(axis, int):
+            axis = [axis]
+        assert isinstance(axis, (list, tuple))
+        axis = [a if a != -1 else self.ndim - 1 for a in axis]
+        shape = [s for i, s in enumerate(self.shape) if i not in axis or self.shape[i] != 1]
+        if shape == self.shape:
+            return self
+        return self.reshape(shape)
+
+    def storage(self):
+        data = np.empty((self.buffer.size // self.dtype().itemsize,), dtype=self.dtype)
+        pyopencl.enqueue_copy(cl.queue, data, self.buffer, is_blocking=True)
+        return data
+
+    def fill(self, value):
+        pyopencl.enqueue_fill_buffer(cl.queue, self.buffer, self.dtype(value), 0, self.size)
+        return self
+
+    def permute(self, axes):
+        inst = copy.copy(self)
+        inst.strides = tuple(inst.strides[a] for a in axes)
+        inst.shape = tuple(inst.shape[a] for a in axes)
+        inst.update_contiguousness()
+        return inst
+
+    def update_contiguousness(self):
+        strides = [self.strides[i] for i in range(self.ndim) if self.shape[i] != 1]
+        sorted_strides = sorted(strides)
+        self.f_contiguous = sorted_strides == strides
+        self.c_contiguous = sorted_strides[::-1] == strides
 

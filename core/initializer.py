@@ -1,7 +1,7 @@
 import numpy as np
 
 from core.tensor import Tensor
-from core.ndarray import GPUArray
+from core.backend.opencl import CLArray
 
 def get_fans(shape):
     fan_in = shape[0] if len(shape) == 2 else np.prod(shape[1:])
@@ -25,7 +25,7 @@ class NormalInit(Initializer):
         if device == "cpu":
             return np.random.normal(loc=self._mean, scale=self._std, size=shape).astype(dtype)
         elif device == "gpu":
-            return GPUArray.normal(loc=self._mean, scale=self._std, shape=shape, dtype=dtype)
+            return CLArray.normal(loc=self._mean, scale=self._std, shape=shape, dtype=dtype)
         else:
             raise ValueError(f"Invalid device type {device}")
 
@@ -38,7 +38,7 @@ class UniformInit(Initializer):
         if device == "cpu":
             return np.random.uniform(low=self._a, high=self._b, size=shape).astype(dtype)
         elif device == "gpu":
-            return GPUArray.uniform(a=self._a, b=self._b, shape=shape, dtype=dtype)
+            return CLArray.uniform(a=self._a, b=self._b, shape=shape, dtype=dtype)
         else:
             raise ValueError(f"Invalid device type {device}")
 
@@ -47,7 +47,7 @@ class ConstantInit(Initializer):
         self._val = val
 
     def init(self, shape, dtype, device):
-        inst = GPUArray.empty(shape, dtype) if device == "gpu" else np.empty(shape, dtype)
+        inst = CLArray.empty(shape, dtype) if device == "gpu" else np.empty(shape, dtype)
         inst.fill(self._val)
         return inst
 
@@ -73,7 +73,7 @@ class XavierUniformInit(Initializer):
         if device == "cpu":
             return np.random.uniform(low=-a, high=a, size=shape).astype(dtype)
         elif device == "gpu":
-            return GPUArray.uniform(a=-a, b=a, shape=shape, dtype=dtype)
+            return CLArray.uniform(a=-a, b=a, shape=shape, dtype=dtype)
         else:
             raise ValueError(f"Invalid device type {device}")
 
@@ -95,6 +95,6 @@ class XavierNormalInit(Initializer):
         if device == "cpu":
             return np.random.normal(loc=0.0, scale=std, size=shape).astype(dtype)
         elif device == "gpu":
-            return GPUArray.normal(loc=0.0, scale=std, shape=shape, dtype=dtype)
+            return CLArray.normal(loc=0.0, scale=std, shape=shape, dtype=dtype)
         else:
             raise ValueError(f"Invalid device type {device}")

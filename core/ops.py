@@ -1,9 +1,7 @@
 import numpy as np
 from utils.helper import timer, genname
 from utils.math import argsort
-
-import os
-GRAPH = int(os.getenv("GRAPH", "0"))
+from env import GRAPH
 
 def as_tensor(obj):
     from core.tensor import as_tensor

@@ -1,11 +1,7 @@
-"""Tensor wraps numpy ndarray with some stuffs for pytorch-like autograd."""
-
 import numpy as np
 import core.ops as ops
-from core.ndarray import GPUArray
-
-import os
-GRAPH = int(os.getenv("GRAPH", "0"))
+from core.backend.opencl import CLArray
+from env import GRAPH
 
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
@@ -13,13 +9,8 @@ def as_tensor(obj):
     return obj
 
 class Tensor:
-    def __init__(self,
-                 values,
-                 requires_grad=False,
-                 dependency=(),
-                 dtype=np.float32,
-                 name=None):
-        self._gpu = isinstance(values, GPUArray)
+    def __init__(self, values, requires_grad=False, dependency=(), dtype=np.float32, name=None):
+        self._gpu = isinstance(values, CLArray)
         self.values = values if self._gpu else np.asarray(values, dtype)
         self.dtype = dtype
 
@@ -37,7 +28,7 @@ class Tensor:
 
     def gpu(self):
         if not self._gpu:
-            return Tensor(values=GPUArray(self._values),
+            return Tensor(values=CLArray(self._values),
                           requires_grad=self.requires_grad,
                           dependency=self.dependency,
                           dtype=self.dtype,
@@ -195,10 +186,10 @@ class Tensor:
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         self.outdegree -= 1
         if grad is None:
-            grad = GPUArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
+            grad = CLArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
             self.outdegree = 0
-        if self._gpu and not isinstance(grad, GPUArray):
-            grad = GPUArray(grad, dtype=self.dtype)
+        if self._gpu and not isinstance(grad, CLArray):
+            grad = CLArray(grad, dtype=self.dtype)
         if not self._gpu and not isinstance(grad, np.ndarray):
             grad = np.asarray(grad, dtype=self.dtype)
 
