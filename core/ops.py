@@ -185,8 +185,8 @@ def sum_(ts, axis, keepdims):
     return ts, grad_fn, values
 
 @unary_ops
-def relu_(ts, inplace):
-    values = ts.values.relu(inplace=inplace)
+def relu_(ts):
+    values = ts.values.relu()
     def grad_fn(grad):
         return grad.drelu(ts.values)
     return ts, grad_fn, values

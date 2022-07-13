@@ -1,7 +1,13 @@
 import numpy as np
 
 from core.tensor import Tensor
-from core.backend.opencl import CLArray
+from env import BACKEND
+from core.backend.numpy import NpArray as CPUArray
+GPUArray = type(None)
+if BACKEND == "opencl":
+    from core.backend.opencl import ClArray as GPUArray
+elif BACKEND == "cuda":
+    from core.backend.cuda import CuArray as GPUArray
 
 def get_fans(shape):
     fan_in = shape[0] if len(shape) == 2 else np.prod(shape[1:])
@@ -23,9 +29,9 @@ class NormalInit(Initializer):
 
     def init(self, shape, dtype, device):
         if device == "cpu":
-            return np.random.normal(loc=self._mean, scale=self._std, size=shape).astype(dtype)
+            return CPUArray.normal(loc=self._mean, scale=self._std, shape=shape, dtype=dtype)
         elif device == "gpu":
-            return CLArray.normal(loc=self._mean, scale=self._std, shape=shape, dtype=dtype)
+            return GPUArray.normal(loc=self._mean, scale=self._std, shape=shape, dtype=dtype)
         else:
             raise ValueError(f"Invalid device type {device}")
 
@@ -36,9 +42,9 @@ class UniformInit(Initializer):
 
     def init(self, shape, dtype, device):
         if device == "cpu":
-            return np.random.uniform(low=self._a, high=self._b, size=shape).astype(dtype)
+            return CPUArray.uniform(a=self._a, b=self._b, shape=shape, dtype=dtype)
         elif device == "gpu":
-            return CLArray.uniform(a=self._a, b=self._b, shape=shape, dtype=dtype)
+            return GPUArray.uniform(a=self._a, b=self._b, shape=shape, dtype=dtype)
         else:
             raise ValueError(f"Invalid device type {device}")
 
@@ -47,9 +53,12 @@ class ConstantInit(Initializer):
         self._val = val
 
     def init(self, shape, dtype, device):
-        inst = CLArray.empty(shape, dtype) if device == "gpu" else np.empty(shape, dtype)
-        inst.fill(self._val)
-        return inst
+        if device == "cpu":
+            return CPUArray.full(shape, self._val, dtype)
+        elif device == "gpu":
+            return GPUArray.full(shape, self._val, dtype)
+        else:
+            raise ValueError(f"Invalid device type {device}")
 
 class ZerosInit(ConstantInit):
     def __init__(self):
@@ -71,9 +80,9 @@ class XavierUniformInit(Initializer):
         fan_in, fan_out = get_fans(shape)
         a = self._gain * np.sqrt(6.0 / (fan_in + fan_out))
         if device == "cpu":
-            return np.random.uniform(low=-a, high=a, size=shape).astype(dtype)
+            return CPUArray.uniform(a=-a, b=a, shape=shape, dtype=dtype)
         elif device == "gpu":
-            return CLArray.uniform(a=-a, b=a, shape=shape, dtype=dtype)
+            return GPUArray.uniform(a=-a, b=a, shape=shape, dtype=dtype)
         else:
             raise ValueError(f"Invalid device type {device}")
 
@@ -93,8 +102,8 @@ class XavierNormalInit(Initializer):
         fan_in, fan_out = get_fans(shape)
         std = self._gain * np.sqrt(2.0 / (fan_in + fan_out))
         if device == "cpu":
-            return np.random.normal(loc=0.0, scale=std, size=shape).astype(dtype)
+            return CPUArray.normal(loc=0.0, scale=std, shape=shape, dtype=dtype)
         elif device == "gpu":
-            return CLArray.normal(loc=0.0, scale=std, shape=shape, dtype=dtype)
+            return GPUArray.normal(loc=0.0, scale=std, shape=shape, dtype=dtype)
         else:
             raise ValueError(f"Invalid device type {device}")

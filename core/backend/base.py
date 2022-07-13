@@ -1,6 +1,39 @@
+from utils.dtype import float32
+
 class Array:
-    def __init__(self):
-        pass
+    def __init__(self, shape=None, dtype=float32):
+        self.shape, self.dtype = shape, dtype
+        self.register_ops()
+
+    @property
+    def size(self):
+        raise NotImplementedError
+
+    @property
+    def ndim(self):
+        raise NotImplementedError
+
+    @classmethod
+    def asarray(cls, obj):
+        if not isinstance(obj, cls):
+            obj = cls(obj.numpy()) if issubclass(obj.__class__, Array) else cls(obj)
+        return obj
+
+    @classmethod
+    def register_ops(cls):
+        for op in ("add", "sub", "mul", "div", "pow"):
+            opname = "truediv" if op is "div" else op
+            setattr(cls, f"__{opname}__", \
+                (lambda op: lambda a, b: getattr(a, op)(cls.asarray(b)))(op))
+            setattr(cls, f"__i{opname}__", \
+                (lambda op: lambda a, b: getattr(a, op)(cls.asarray(b), out=a))(op))
+            setattr(cls, f"__r{opname}__", \
+                (lambda op: lambda a, b: getattr(cls.asarray(b), op)(a))(op))
+        for op in ("eq", "ge", "gt", "le", "lt"):
+            setattr(cls, f"__{op}__", \
+                (lambda op: lambda a, b: getattr(a, op)(cls.asarray(b)))(op))
+        setattr(cls, f"__matmul__", lambda a, b: a.matmul(cls.asarray(b)))
+        setattr(cls, f"__neg__", lambda a: a.neg())
 
     @classmethod
     def broadcast(cls, a, b):
@@ -21,21 +54,30 @@ class Array:
         if b.shape != broadcast_shape:
             b = b.expand(broadcast_shape)
         return a, b
+
     # ##### Unary Ops #####
-    def relu(self, inplace=False): raise NotImplementedError
+    def neg(self): raise NotImplementedError
     def exp(self): raise NotImplementedError
     def log(self): raise NotImplementedError
-    def drelu(self): raise NotImplementedError
+    def relu(self): raise NotImplementedError
 
     # ##### Binary Ops #####
-    def __add__(self, other): raise NotImplementedError
-    def __radd__(self, other): raise NotImplementedError
-    def __iadd__(self, other): raise NotImplementedError
+    def add(self, other, out=None): raise NotImplementedError
+    def sub(self, other, out=None): raise NotImplementedError
+    def mul(self, other, out=None): raise NotImplementedError
+    def div(self, other, out=None): raise NotImplementedError
+    def pow(self, other, out=None): raise NotImplementedError
+    def eq(self, other, out=None): raise NotImplementedError
+    def gt(self, other): raise NotImplementedError
+    def ge(self, other): raise NotImplementedError
+    def lt(self, other): raise NotImplementedError
+    def le(self, other): raise NotImplementedError
+    def matmul(self, other): raise NotImplementedError
+    def drelu(self, other): raise NotImplementedError
 
     # ##### Reduce Ops #####
-    def sum(self, axis=None, keepdims=None): raise NotImplementedError
-    def min(self, axis=None, keepdims=None): raise NotImplementedError
-    def max(self, axis=None, keepdims=None): raise NotImplementedError
+    def sum(self, axis=None, keepdims=False): raise NotImplementedError
+    def max(self, axis=None, keepdims=False): raise NotImplementedError
 
     # ##### Movement Ops #####
     def reshape(self, shape): raise NotImplementedError
@@ -43,11 +85,25 @@ class Array:
     def squeeze(self, axis=None): raise NotImplementedError
     def permute(self, axes): raise NotImplementedError
 
+    @property
+    def T(self):
+        return self.permute(axes=tuple(range(self.ndim)[::-1]))
+
     # ##### Slice Ops #####
     def __getitem__(self, key): raise NotImplementedError
     def __setitem__(self, key, value): raise NotImplementedError
 
-    @property
-    def T(self):
-        return self.permute(axes=tuple(range(self.ndim)[::-1]))
+    # #### Contruct Ops #####
+    @classmethod
+    def empty(cls, shape, dtype=float32): raise NotImplementedError
+    @classmethod
+    def zeros(cls, shape, dtype=float32): raise NotImplementedError
+    @classmethod
+    def ones(cls, shape, dtype=float32): raise NotImplementedError
+    @classmethod
+    def full(cls, shape, dtype=float32): raise NotImplementedError
+    @classmethod
+    def uniform(cls, a, b, shape, dtype=float32): raise NotImplementedError
+    @classmethod
+    def normal(cls, loc, scale, shape, dtype=float32): raise NotImplementedError
 

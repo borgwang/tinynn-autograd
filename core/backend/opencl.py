@@ -28,6 +28,9 @@ class CLContext:
         kernel = pyopencl.Program(self.ctx, program).build().__getattr__(name)
         return lambda *args: kernel(self.queue, *args)
 
+    def alloc_local_memory(self, size):
+        return pyopencl.LocalMemory(size)
+
     def alloc_buffer(self, shape, dtype, hostbuf=None):
         size = int(dtype().itemsize * prod(shape))
         flags = pyopencl.mem_flags.READ_WRITE
@@ -35,8 +38,8 @@ class CLContext:
             flags |= pyopencl.mem_flags.COPY_HOST_PTR
         return pyopencl.Buffer(self.ctx, flags, size, hostbuf=hostbuf)
 
-    def alloc_local_memory(self, size):
-        return pyopencl.LocalMemory(size)
+    def enqueue(self, task, *args, **kwargs):
+        getattr(pyopencl, f"enqueue_{task}")(self.queue, *args, **kwargs)
 
 cl = CLContext()
 
@@ -87,7 +90,9 @@ def binary_op(name, a, b, ret=None):
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
     assert ret.c_contiguous, f"ret must be contiguous. {ret}"
     ret_strides = (1,) if not ret.strides else ret.strides
-    code_map = {"add": "a+b", "sub": "a-b", "truediv": "a/b", "mul": "a*b", "pow": "pow(a,b)", "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)", "drelu": "b>0?a:0.0f"}
+    code_map = {"add": "a+b", "sub": "a-b", "div": "a/b", "mul": "a*b", "pow": "pow(a,b)",
+                "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)",
+                "lt": "(float)isless(a,b)", "le": "(float)islessequal(a,b)", "drelu": "b>0?a:0.0f"}
     op = cl.build("binary_op", f"""__kernel void binary_op(
         {''.join([f'int a_s{i}, int b_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
         int a_ofst, int b_ofst, __global const float *A, __global const float *B, __global float *C) {{
@@ -178,8 +183,9 @@ def contiguous_op(x):
     return ret
 
 def reduce_op(name, x, axis=None, keepdims=True):
-    code_map = {"sum": "a+b", "max": "max(a,b)", "min": "min(a,b)"}
-    padval_map = {"sum": "0.0f", "max": "-INFINITY", "min": "INFINITY"}
+    x = contiguous_op(x) if not x.c_contiguous else x
+    code_map = {"sum": "a+b", "max": "max(a,b)"}
+    padval_map = {"sum": "0.0f", "max": "-INFINITY"}
     x_shp = x.shape
     if axis is None:
         axis, x_shp = 0, (prod(x.shape),)
@@ -240,31 +246,25 @@ def reduce_op(name, x, axis=None, keepdims=True):
     return ret
 
 
-class CLArray(Array):
+class ClArray(Array):
     # https://numpy.org/doc/stable/dev/internals.html#numpy-internals
     def __init__(self, data=None, shape=None, dtype=float32):
+        super().__init__(shape, dtype)
         if isinstance(data, pyopencl.Buffer):
             self.buffer = data
-            assert shape is not None, "cannot infer shape when initialize using clbuffer"
+            assert self.shape is not None, "cannot infer shape when initialize using clbuffer"
         else:
             if data is not None:
-                data = np.asarray(data, dtype=dtype)
-                shape = data.shape
+                data = np.asarray(data, dtype=self.dtype)
+                self.shape = data.shape
             else:
-                assert shape is not None, "cannot infer shape when without data"
-            self.buffer = cl.alloc_buffer(shape, dtype, data)
-        self.shape, self.dtype = tuple(shape), dtype
-        self.strides = tuple(prod(shape[i+1:]) for i in range(len(shape)))
+                assert self.shape is not None, "cannot infer shape when without data"
+            self.buffer = cl.alloc_buffer(self.shape, self.dtype, data)
+        # meta infos
+        self.strides = tuple(prod(self.shape[i+1:]) for i in range(len(self.shape)))
         self.offset = 0  # offset relative to the beginning of the buffer
         self.c_contiguous, self.f_contiguous = True, False
-        self.update_contiguousness()
-        self.register_ops()
-
-    @staticmethod
-    def as_gpu_array(obj):
-        if not isinstance(obj, CLArray):
-            obj = CLArray(obj)
-        return obj
+        self.__update_contiguousness()
 
     @property
     def size(self):
@@ -275,43 +275,33 @@ class CLArray(Array):
         return len(self.shape)
 
     def __repr__(self):
-        return (f"<CLArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} contiguous={self.c_contiguous}>")
+        return (f"<ClArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} contiguous={self.c_contiguous}>")
 
-    def register_ops(self):
-        cls = self.__class__
-        for op in ("add", "sub", "mul", "truediv", "pow"):
-            setattr(cls, f"__{op}__",
-                    (lambda op: lambda a, b: binary_op(op, a, self.as_gpu_array(b)))(op))
-            setattr(cls, f"__i{op}__",
-                    (lambda op: lambda a, b: binary_op(op, a, self.as_gpu_array(b), ret=a))(op))
-            setattr(cls, f"__r{op}__",
-                    (lambda op: lambda a, b: binary_op(op, self.as_gpu_array(b), a))(op))
-        for op in ("eq", "ge", "gt"):
-            setattr(cls, f"__{op}__",
-                    (lambda op: lambda a, b: binary_op(op, a, self.as_gpu_array(b)))(op))
-        setattr(cls, f"__matmul__", lambda a, b: matmul_op(a, self.as_gpu_array(b)))
-        setattr(cls, f"__neg__", lambda a: unary_op("neg", a))
+    # ##### Unary Ops #####
+    def neg(self): return unary_op("neg", self)
+    def exp(self): return unary_op("exp", self)
+    def log(self): return unary_op("log", self)
+    def relu(self): return unary_op("relu", self)
 
-    def sum(self, axis=None, keepdims=False):
-        arr = self.contiguous() if not self.c_contiguous else self
-        return reduce_op("sum", arr, axis=axis, keepdims=keepdims)
+    # ##### Binary Ops #####
+    def add(self, other, out=None): return binary_op("add", self, other, ret=out)
+    def sub(self, other, out=None): return binary_op("sub", self, other, ret=out)
+    def div(self, other, out=None): return binary_op("div", self, other, ret=out)
+    def mul(self, other, out=None): return binary_op("mul", self, other, ret=out)
+    def pow(self, other, out=None): return binary_op("pow", self, other, ret=out)
+    def matmul(self, other): return matmul_op(self, other)
+    def eq(self, other): return binary_op("eq", self, other)
+    def ge(self, other): return binary_op("ge", self, other)
+    def gt(self, other): return binary_op("gt", self, other)
+    def le(self, other): return binary_op("le", self, other)
+    def lt(self, other): return binary_op("lt", self, other)
+    def drelu(self, other): return binary_op("drelu", self, other)  # TODO
 
-    def max(self, axis=None, keepdims=False):
-        arr = self.contiguous() if not self.c_contiguous else self
-        return reduce_op("max", arr, axis=axis, keepdims=keepdims)
+    # ##### Reduce Ops #####
+    def sum(self, axis=None, keepdims=None): return reduce_op("sum", self, axis=axis, keepdims=keepdims)
+    def max(self, axis=None, keepdims=False): return reduce_op("max", self, axis=axis, keepdims=keepdims)
 
-    def relu(self, inplace=False):
-        return unary_op("relu", self, ret=self if inplace else None)
-
-    def exp(self):
-        return unary_op("exp", self)
-
-    def log(self):
-        return unary_op("log", self)
-
-    def drelu(self, other):
-        return binary_op("drelu", self, self.as_gpu_array(other))
-
+    # ##### Slice Ops #####
     def __getitem__(self, key):
         # TODO: handle step
         is_basic = lambda k: isinstance(k, (slice, int))
@@ -345,40 +335,7 @@ class CLArray(Array):
         # unary_op("noop", value, ret=item)
         assert False, "TODO: implement assign ops"
 
-    @classmethod
-    def empty(cls, shape, dtype=float32):
-        return cls(shape=shape, dtype=dtype)
-
-    @classmethod
-    def zeros(cls, shape, dtype=float32):
-        return cls(shape=shape, dtype=dtype).fill(0)
-
-    @classmethod
-    def ones(cls, shape, dtype=float32):
-        return cls(shape=shape, dtype=dtype).fill(1)
-
-    @classmethod
-    def full(cls, shape, value, dtype=float32):
-        return cls(shape=shape, dtype=dtype).fill(value)
-
-    @classmethod
-    def uniform(cls, a, b, shape, dtype=float32):
-        buffer = cl.rng.uniform(a=a, b=b, shape=shape, dtype=dtype, cq=cl.queue).data
-        return cls(data=buffer, shape=shape, dtype=dtype)
-
-    @classmethod
-    def normal(cls, loc, scale, shape, dtype=float32):
-        buffer = cl.rng.normal(mu=loc, sigma=scale, shape=shape, dtype=dtype, cq=cl.queue).data
-        return cls(data=buffer, shape=shape, dtype=dtype)
-
-    def numpy(self):
-        data = np.empty(self.shape, dtype=self.dtype)
-        pyopencl.enqueue_copy(cl.queue, data, self.contiguous().buffer, is_blocking=True)
-        return data
-
-    def contiguous(self):
-        return contiguous_op(self)
-
+    # ##### Movement Ops #####
     def reshape(self, shape):
         if -1 in shape:
             size = prod(self.shape)
@@ -396,7 +353,7 @@ class CLArray(Array):
             else:
                 strides = (prod(shape[:i]) for i in range(len(shape)))
             inst.shape, inst.strides = tuple(shape), tuple(strides)
-            inst.update_contiguousness()
+            inst.__update_contiguousness()
         else:
             inst = self.contiguous().reshape(shape)
         return inst
@@ -425,23 +382,53 @@ class CLArray(Array):
             return self
         return self.reshape(shape)
 
-    def storage(self):
-        data = np.empty((self.buffer.size // self.dtype().itemsize,), dtype=self.dtype)
-        pyopencl.enqueue_copy(cl.queue, data, self.buffer, is_blocking=True)
-        return data
-
-    def fill(self, value):
-        pyopencl.enqueue_fill_buffer(cl.queue, self.buffer, self.dtype(value), 0, self.size)
-        return self
-
     def permute(self, axes):
         inst = copy.copy(self)
         inst.strides = tuple(inst.strides[a] for a in axes)
         inst.shape = tuple(inst.shape[a] for a in axes)
-        inst.update_contiguousness()
+        inst.__update_contiguousness()
         return inst
 
-    def update_contiguousness(self):
+    # ##### Construct Ops #####
+    @classmethod
+    def empty(cls, shape, dtype=float32):
+        return cls(shape=shape, dtype=dtype)
+
+    @classmethod
+    def zeros(cls, shape, dtype=float32):
+        return cls(shape=shape, dtype=dtype).fill(0)
+
+    @classmethod
+    def ones(cls, shape, dtype=float32):
+        return cls(shape=shape, dtype=dtype).fill(1)
+
+    @classmethod
+    def full(cls, shape, value, dtype=float32):
+        return cls(shape=shape, dtype=dtype).fill(value)
+
+    @classmethod
+    def uniform(cls, a, b, shape, dtype=float32):
+        buffer = cl.rng.uniform(a=a, b=b, shape=shape, dtype=dtype, cq=cl.queue).data
+        return cls(data=buffer, shape=shape, dtype=dtype)
+
+    @classmethod
+    def normal(cls, loc, scale, shape, dtype=float32):
+        buffer = cl.rng.normal(mu=loc, sigma=scale, shape=shape, dtype=dtype, cq=cl.queue).data
+        return cls(data=buffer, shape=shape, dtype=dtype)
+
+    def numpy(self):
+        data = np.empty(self.shape, dtype=self.dtype)
+        cl.enqueue("copy", data, self.contiguous().buffer, is_blocking=True)
+        return data
+
+    def contiguous(self):
+        return contiguous_op(self)
+
+    def fill(self, value):
+        cl.enqueue("fill_buffer", self.buffer, self.dtype(value), 0, self.size)
+        return self
+
+    def __update_contiguousness(self):
         strides = [self.strides[i] for i in range(self.ndim) if self.shape[i] != 1]
         sorted_strides = sorted(strides)
         self.f_contiguous = sorted_strides == strides

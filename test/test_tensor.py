@@ -27,7 +27,7 @@ def test_binary():
 
 def test_unary():
     shape = (10, 2, 3)
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         npa = rnd(shape)
         a = getattr(Tensor(npa), device)()
@@ -41,7 +41,7 @@ def test_comparison_operators():
     shape = (64, 64)
     rndint = lambda s: np.random.randint(0, 10, size=s).astype(np.float32)
     npa, npb = rndint(shape), rndint(shape)
-    for device in ("gpu",):
+    for device in ("gpu", "cpu"):
         a, b = getattr(Tensor(npa, requires_grad=True), device)(), getattr(Tensor(npb, requires_grad=True), device)()
         check_tensor(a==b, (npa==npb).astype(np.float32))
         check_tensor(a>b, (npa>npb).astype(np.float32))

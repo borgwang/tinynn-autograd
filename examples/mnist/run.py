@@ -124,7 +124,7 @@ def main(args):
         if args.eval:
             test_pred = net.forward(test_x).numpy()
             test_pred_idx = np.argmax(test_pred, axis=1)
-            test_y_idx = test_y.values
+            test_y_idx = test_y.numpy()
             print(evaluator.evaluate(test_pred_idx, test_y_idx))
 
 if __name__ == "__main__":

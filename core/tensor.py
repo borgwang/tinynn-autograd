@@ -1,7 +1,14 @@
 import numpy as np
 import core.ops as ops
-from core.backend.opencl import CLArray
-from env import GRAPH
+from env import GRAPH, BACKEND
+from utils.dtype import float32
+
+from core.backend.numpy import NpArray as CPUArray
+GPUArray = type(None)
+if BACKEND == "opencl":
+    from core.backend.opencl import ClArray as GPUArray
+elif BACKEND == "cuda":
+    from core.backend.cuda import CuArray as GPUArray
 
 def as_tensor(obj):
     if not isinstance(obj, Tensor):
@@ -9,9 +16,12 @@ def as_tensor(obj):
     return obj
 
 class Tensor:
-    def __init__(self, values, requires_grad=False, dependency=(), dtype=np.float32, name=None):
-        self._gpu = isinstance(values, CLArray)
-        self.values = values if self._gpu else np.asarray(values, dtype)
+    def __init__(self, values, requires_grad=False, dependency=(), dtype=float32, name=None):
+        self._gpu = isinstance(values, GPUArray)
+        if isinstance(values, (CPUArray, GPUArray)):
+            self.array = values
+        else:
+            self.array = CPUArray(values, dtype=dtype)
         self.dtype = dtype
 
         self.grad = None
@@ -27,8 +37,9 @@ class Tensor:
         return getattr(self, device)()
 
     def gpu(self):
+        assert GPUArray != type(None), f"backend {BACKEND} not support gpu device"
         if not self._gpu:
-            return Tensor(values=CLArray(self._values),
+            return Tensor(values=GPUArray(self.array.numpy()),
                           requires_grad=self.requires_grad,
                           dependency=self.dependency,
                           dtype=self.dtype,
@@ -37,7 +48,7 @@ class Tensor:
 
     def cpu(self):
         if self._gpu:
-            return Tensor(values=self._values.numpy(),
+            return Tensor(values=CPUArray(self.array.numpy()),
                           requires_grad=self.requires_grad,
                           dependency=self.dependency,
                           dtype=self.dtype,
@@ -45,22 +56,20 @@ class Tensor:
         return self
 
     def numpy(self):
-        if self._gpu:
-            return self._values.numpy()
-        return self._values
+        return self.array.numpy()
 
     @property
     def values(self):
-        return self._values
+        return self.array
 
     @values.setter
     def values(self, new_values):
-        self._values = new_values
+        self.array = new_values
         #self.grad = None
 
     @property
     def shape(self):
-        return self._values.shape
+        return self.array.shape
 
     def __repr__(self):
         return (f"Tensor(name={self.name}, shape={self.shape}, "
@@ -94,7 +103,7 @@ class Tensor:
         return ops.sub_(as_tensor(other), self)
 
     def __isub__(self, other):
-        self._values = self._values - as_tensor(other).values
+        self.array = self.array - as_tensor(other).values
         return self
 
     def __mul__(self, other):
@@ -168,8 +177,8 @@ class Tensor:
     def flatten(self):
         return ops.flatten_(self)
 
-    def relu(self, inplace=False):
-        return ops.relu_(self, inplace)
+    def relu(self):
+        return ops.relu_(self)
 
     def exp(self):
         return ops.exp_(self)
@@ -186,12 +195,12 @@ class Tensor:
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         self.outdegree -= 1
         if grad is None:
-            grad = CLArray(1.0) if self._gpu else np.array(1.0, dtype=np.float32)
+            grad = GPUArray(1.0) if self._gpu else CPUArray(1.0)
             self.outdegree = 0
-        if self._gpu and not isinstance(grad, CLArray):
-            grad = CLArray(grad, dtype=self.dtype)
-        if not self._gpu and not isinstance(grad, np.ndarray):
-            grad = np.asarray(grad, dtype=self.dtype)
+        if self._gpu and not isinstance(grad, GPUArray):
+            grad = GPUArray(grad, dtype=self.dtype)
+        if not self._gpu and not isinstance(grad, CPUArray):
+            grad = CPUArray(grad, dtype=self.dtype)
 
         if self.requires_grad:
             if self.grad is None:

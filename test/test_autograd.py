@@ -5,9 +5,10 @@ import runtime_path  # isort:skip
 import numpy as np
 
 from core.tensor import Tensor
+from env import BACKEND
 
 def test_add_op():
-    devices = ("gpu", )
+    devices = ("gpu", "cpu")
     for device in devices:
         t1 = Tensor([1, 3, 5], requires_grad=True).to(device)
         t2 = Tensor([5, -2, -9], requires_grad=True).to(device)
@@ -34,7 +35,7 @@ def test_add_op():
         assert np.allclose(t2.grad.numpy(), [3, 3, 3])
 
 def test_mul_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         t1 = Tensor([1, 3, 5], requires_grad=True).to(device)
         t2 = Tensor([5, -2, -9], requires_grad=True).to(device)
@@ -46,7 +47,7 @@ def test_mul_ops():
 
 
 def test_div_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         t1 = Tensor([1, 2, 5], requires_grad=True).to(device)
         t2 = Tensor([8, -2, -10], requires_grad=True).to(device)
@@ -57,7 +58,7 @@ def test_div_ops():
         assert np.allclose(t2.grad.numpy(), [-0.015625, -0.5, -0.05])
 
 def test_pow_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         t1 = Tensor([1, -3, 5], requires_grad=True).to(device)
         t2 = t1 ** 3
@@ -66,7 +67,7 @@ def test_pow_ops():
         assert np.allclose(t1.grad.numpy(), [2 * 3 * 1 ** 2, 2 * 3 * (-3) ** 2, 2 * 3 * 5 ** 2])
 
 def test_dot_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         t1 = Tensor([[1, 3, 5], [5, -2, 9]], requires_grad=True).to(device)
         t2 = Tensor([[9, 8, 9, 7], [4, 0, 3, 0], [0, 8, 2, 7]], requires_grad=True).to(device)
@@ -77,7 +78,7 @@ def test_dot_ops():
         assert np.allclose(t2.grad.numpy(), [[21, 17, 13, 9], [-5, 0, 5, 10], [41, 37, 33, 29]])
 
 def test_sum_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         t1 = Tensor([1, 3, 5], requires_grad=True).to(device)
         t2 = Tensor([5, -2, -9], requires_grad=True).to(device)
@@ -88,7 +89,7 @@ def test_sum_ops():
         assert np.allclose(t2.grad.numpy(), [2, 2, 2])
 
 def test_epx_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         data = [1, 3, 4]
         t1 = Tensor(data, requires_grad=True).to(device)
@@ -98,7 +99,7 @@ def test_epx_ops():
         assert np.allclose(t1.grad.numpy(), np.exp(data) * np.array([1, 2, 3]))
 
 def test_neg_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         t1 = Tensor([1, 3, 5], requires_grad=True).to(device)
         t2 = -t1
@@ -107,7 +108,7 @@ def test_neg_ops():
         assert np.allclose(t1.grad.numpy(), [-1, -2, -3])
 
 def test_permute_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         shape = [2, 4, 6]
         data = np.random.randn(*shape)
@@ -119,7 +120,7 @@ def test_permute_ops():
         assert np.allclose(t1.grad.numpy(), 2 * np.ones(t1.shape))
 
 def test_max_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         t1 = Tensor([[1, 3, 5], [3, 7, -2]], requires_grad=True).to(device)
         t2 = t1.max()
@@ -133,7 +134,7 @@ def test_max_ops():
         assert np.allclose(t1.grad.numpy(), [[0, 0, 1], [1, 1, 0]])
 
 def test_log_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         data = np.array([1, 3, 5])
         t1 = Tensor(data, requires_grad=True).to(device)
@@ -145,7 +146,7 @@ def test_log_ops():
         assert np.allclose(t1.grad.numpy(), grad / np.array([1, 3, 5]))
 
 def test_reshape_ops():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         t1 = Tensor([[1, 2, 3], [4, 5, 6]], requires_grad=True).to(device)
         t2 = t1.reshape((6,))
@@ -155,7 +156,7 @@ def test_reshape_ops():
         assert np.allclose(t1.grad.numpy(), [[1, 1, 1], [1, 1, 1]])
 
 def test_slice():
-    devices = ("gpu",)
+    devices = ("gpu", "cpu")
     for device in devices:
         data = np.arange(24).reshape((2, 3, 4)).astype(np.float32)
         t1 = Tensor(data, requires_grad=True).to(device)
@@ -172,7 +173,7 @@ def test_slice():
             t2 = t1[s]
             assert t2.shape == data[s].shape
             assert np.allclose(t2.numpy(), data[s])
-            assert t1.values.buffer == t2.values.buffer
+            #assert t1.values.buffer == t2.values.buffer
             # unary ops
             assert np.allclose(t2.exp().numpy(), np.exp(data[s]))
             assert np.allclose(t2.log().numpy(), np.log(data[s]))
