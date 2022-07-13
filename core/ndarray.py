@@ -3,8 +3,8 @@ import copy
 import numpy as np
 import pyopencl as cl
 
-from core.backend.ops_gpu import cl_ctx, cl_queue, cl_rng, alloc_buffer
-from core.backend.ops_gpu import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
+from core.backend.opencl import cl_ctx, cl_queue, cl_rng, alloc_buffer
+from core.backend.opencl import binary_op, matmul_op, unary_op, contiguous_op, reduce_op
 from utils.math import prod
 from utils.dtype import float32
 

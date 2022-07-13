@@ -2,7 +2,7 @@ import runtime_path  # isort:skip
 
 import numpy as np
 from core.ndarray import GPUArray
-from core.backend.ops_gpu import unary_op
+from core.backend.opencl import unary_op
 
 import os
 DEBUG = int(os.getenv("DEBUG", "0"))

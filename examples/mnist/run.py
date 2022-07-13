@@ -13,9 +13,10 @@ import time
 import numpy as np
 
 from core.evaluator import AccEvaluator
-from core.layers import Dense
-from core.layers import ReLU
-from core.nn import Model, Net, Adam, SoftmaxCrossEntropyLoss
+from core.nn.net import SequentialNet
+from core.nn.layers import Dense, ReLU
+from core.nn.loss import SoftmaxCrossEntropyLoss
+from core.nn.optimizer import Adam
 from core.tensor import Tensor
 from utils.data_iterator import BatchIterator
 from utils.downloader import download_url
@@ -88,36 +89,41 @@ def main(args):
     test_x = Tensor(test_x).to(args.device)
     test_y = Tensor(test_y)
 
-    net = Net([Dense(256), ReLU(), Dense(128), ReLU(), Dense(64), ReLU(), Dense(32), ReLU(), Dense(10)])
-    net = net.to(args.device)
-    model = Model(net=net, loss=SoftmaxCrossEntropyLoss(), optimizer=Adam(lr=args.lr))
-    loss_layer = SoftmaxCrossEntropyLoss()
+    net = SequentialNet(
+            Dense(256), ReLU(),
+            Dense(128), ReLU(),
+            Dense(64), ReLU(),
+            Dense(32), ReLU(),
+            Dense(10)).to(args.device)
+    optim = Adam(net.get_parameters(), lr=args.lr)
+    loss_fn = SoftmaxCrossEntropyLoss()
+
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()
-    from core.backend.ops_gpu import KernelCounter
+    from core.backend.opencl import KernelCounter
     for epoch in range(args.num_ep):
         t_start = time.time()
         for batch in iterator(train_x, train_y):
-            model.zero_grad()
+            net.zero_grad()
             x, y = batch.inputs.to(args.device), batch.targets.to(args.device)
             c1 = sum(KernelCounter.cnt.values())
-            pred = model.forward(x)
+            pred = net.forward(x)
             c2 = sum(KernelCounter.cnt.values())
-            loss = loss_layer.loss(pred, y)
+            loss = loss_fn(pred, y)
             c3 = sum(KernelCounter.cnt.values())
             if GRAPH: ts = time.time()
             loss.backward()
             if GRAPH: print("loss.backward() cost: ", time.time() - ts)
             c4 = sum(KernelCounter.cnt.values())
             if GRAPH: plot_graph(loss)
-            model.step()
+            optim.step()
             c5 = sum(KernelCounter.cnt.values())
             if DEBUG: print(f"[DEBUG] kernel_call forward:{c2-c1} loss:{c3-c2} backward:{c4-c3} step:{c5-c4}")
             if DEBUG: print(f"[DEBUG] kernal_call {dict(KernelCounter.cnt)}")
             if args.onepass: sys.exit()
         print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
         if args.eval:
-            test_pred = model.forward(test_x).numpy()
+            test_pred = net.forward(test_x).numpy()
             test_pred_idx = np.argmax(test_pred, axis=1)
             test_y_idx = test_y.values
             print(evaluator.evaluate(test_pred_idx, test_y_idx))
