@@ -208,4 +208,42 @@ def test_slice():
         import pdb; pdb.set_trace()
         """
 
+def test_minimal():
+    np.random.seed(0)
+    BS = 2**6
+    idim = 2**8
+    odim = 2**6
+    x_np = np.random.normal(0, 1, (BS, idim)).astype(np.float32)
+    y_np = np.random.normal(0, 1, (BS, odim)).astype(np.float32)
+    w_np = np.random.normal(0, 1, (idim, odim)).astype(np.float32)
+    b_np = np.zeros((1, odim)).astype(np.float32)
+
+    x, y, w, b = x_np.copy(), y_np.copy(), w_np.copy(), b_np.copy()
+    for epoch in range(10):
+        pred = x @ w + b
+        err = (pred - y)
+        loss = (err**2).sum()
+        dw = x.T @ (2 * err)
+        db = (2 * err).sum(axis=0, keepdims=True)
+        w -= 0.0001 * dw
+        b -= 0.0001 * db
+    loss_final, w_final, b_final = loss, w, b
+
+    devices = ("gpu", "cpu")
+    for device in devices:
+        x = Tensor(x_np).to(device)
+        y = Tensor(y_np).to(device)
+        w = Tensor(w_np, requires_grad=True).to(device)
+        b = Tensor(b_np, requires_grad=True).to(device)
+        for epoch in range(10):
+            w.zero_grad()
+            b.zero_grad()
+            pred = x @ w + b
+            loss = ((pred - y)**2).sum()
+            loss.backward()
+            w -= 0.0001 * w.grad
+            b -= 0.0001 * b.grad
+        assert np.allclose(loss.values.numpy(), loss_final, rtol=1e-3)
+        assert np.allclose(w.numpy(), w_final, rtol=1e-3)
+        assert np.allclose(b.numpy(), b_final, rtol=1e-3)
 
