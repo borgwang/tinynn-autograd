@@ -50,7 +50,7 @@ class NpArray(Array):
     def squeeze(self, axis=None): return self.asarray(np.squeeze(self.data, axis))
     def permute(self, axes): return self.asarray(np.transpose(self.data, axes))
 
-    # ##### Construct Ops #####
+    # ##### Creation Ops #####
     @classmethod
     def empty(cls, shape, dtype=float32):
         return cls.asarray(np.empty(shape, dtype))

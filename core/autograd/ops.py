@@ -1,15 +1,14 @@
 import numpy as np
+
+from env import GRAPH
 from utils.helper import timer, genname
 from utils.math import argsort
-from env import GRAPH
-
-def as_tensor(obj):
-    from core.tensor import as_tensor
-    return as_tensor(obj)
 
 def binary_ops(func):
-    def wrapper(*args, **kwargs):
-        ts1, ts2, grad_fn1, grad_fn2, values = func(*args, **kwargs)
+    def wrapper(ts1, ts2, *args, **kwargs):
+        arr, grad_fn1, grad_fn2 = func(ts1.values, ts2.values, *args, **kwargs)
+        grad_fn1 = unbroadcast(grad_fn1, ts1.shape)
+        grad_fn2 = unbroadcast(grad_fn2, ts2.shape)
         requires_grad = (ts1.requires_grad and grad_fn1) or (ts2.requires_grad and grad_fn2)
         dependency = []
         if ts1.requires_grad and grad_fn1:
@@ -21,12 +20,13 @@ def binary_ops(func):
             dependency.append(dict(tensor=ts2, grad_fn=grad_fn2))
             ts2.outdegree += 1
         name = genname(func.__name__, ts1, ts2)
-        return ts1.__class__(values, requires_grad, dependency, name=name)
+        from core.tensor import Tensor
+        return Tensor(arr, requires_grad, dependency, name=name)
     return wrapper
 
 def unary_ops(func):
-    def wrapper(*args, **kwargs):
-        ts, grad_fn, values = func(*args, **kwargs)
+    def wrapper(ts, *args, **kwargs):
+        arr, grad_fn = func(ts.values, *args, **kwargs)
         requires_grad = ts.requires_grad and grad_fn
         dependency = []
         if ts.requires_grad and grad_fn:
@@ -34,196 +34,142 @@ def unary_ops(func):
             dependency.append(dict(tensor=ts, grad_fn=grad_fn))
             ts.outdegree += 1
         name = genname(func.__name__, ts)
-        return ts.__class__(values, requires_grad, dependency, name=name)
+        from core.tensor import Tensor
+        return Tensor(arr, requires_grad, dependency, name=name)
+    return wrapper
+
+def unbroadcast(func, shape):
+    def wrapper(*args, **kwargs):
+        ret = func(*args, **kwargs)
+        ndim = len(shape)
+        for i in range(ret.ndim - ndim):
+            ret = ret.sum(axis=0)
+        for i in range(ndim):
+            if shape[i] == 1:
+                ret = ret.sum(axis=i, keepdims=True)
+        return ret
     return wrapper
 
 @binary_ops
-def add_(ts1, ts2):
-    values = ts1.values + ts2.values
-    def grad_fn1(grad):
-        for _ in range(grad.ndim - ts1.values.ndim):
-            grad = grad.sum(axis=0)
-        for i, dim in enumerate(ts1.shape):
-            if dim == 1:
-                grad = grad.sum(axis=i, keepdims=True)
-        return grad
-    def grad_fn2(grad):
-        for _ in range(grad.ndim - ts2.values.ndim):
-            grad = grad.sum(axis=0)
-        for i, dim in enumerate(ts2.shape):
-            if dim == 1:
-                grad = grad.sum(axis=i, keepdims=True)
-        return grad
-    return ts1, ts2, grad_fn1, grad_fn2, values
+def add(arr1, arr2):
+    grad_fn = lambda g: g
+    return arr1 + arr2, grad_fn, grad_fn
 
 @binary_ops
-def sub_(ts1, ts2):
-    values = ts1.values - ts2.values
-    def grad_fn1(grad):
-        for _ in range(grad.ndim - ts1.values.ndim):
-            grad = grad.sum(axis=0)
-        for i, dim in enumerate(ts1.shape):
-            if dim == 1:
-                grad = grad.sum(axis=i, keepdims=True)
-        return grad
-    def grad_fn2(grad):
-        for _ in range(grad.ndim - ts2.values.ndim):
-            grad = grad.sum(axis=0)
-        for i, dim in enumerate(ts2.shape):
-            if dim == 1:
-                grad = grad.sum(axis=i, keepdims=True)
-        return -grad
-    return ts1, ts2, grad_fn1, grad_fn2, values
+def sub(arr1, arr2):
+    grad_fn1 = lambda g: g
+    grad_fn2 = lambda g: -g
+    return arr1 - arr2, grad_fn1, grad_fn2
 
 @binary_ops
-def mul_(ts1, ts2):
-    values = ts1.values * ts2.values
-    def grad_fn1(grad):
-        return ts2.values * grad
-    def grad_fn2(grad):
-        return ts1.values * grad
-    return ts1, ts2, grad_fn1, grad_fn2, values
+def mul(arr1, arr2):
+    grad_fn1 = lambda g: arr2 * g
+    grad_fn2 = lambda g: arr1 * g
+    return arr1 * arr2, grad_fn1, grad_fn2
 
 @binary_ops
-def div_(ts1, ts2):
-    values = ts1.values / ts2.values
-    def grad_fn1(grad):
-        grad = grad / ts2.values
-        for _ in range(grad.ndim - ts1.values.ndim):
-            grad = grad.sum(axis=0)
-        for i, dim in enumerate(ts1.shape):
-            if dim == 1:
-                grad = grad.sum(axis=i, keepdims=True)
-        return grad
-    def grad_fn2(grad):
-        grad = -grad * values / ts2.values
-        for _ in range(grad.ndim - ts2.values.ndim):
-            grad = grad.sum(axis=0)
-        for i, dim in enumerate(ts2.shape):
-            if dim == 1:
-                grad = grad.sum(axis=i, keepdims=True)
-        return grad
-    return ts1, ts2, grad_fn1, grad_fn2, values
+def div(arr1, arr2):
+    res = arr1 / arr2
+    grad_fn1 = lambda g: g / arr2
+    grad_fn2 = lambda g: -g * res / arr2
+    return res, grad_fn1, grad_fn2
 
 @binary_ops
-def pow_(ts1, ts2):
-    values = ts1.values ** ts2.values
-    def grad_fn1(grad):
-        return grad * (ts2.values * ts1.values ** (ts2.values - 1.0))
-    def grad_fn2(grad):
-        grad = grad * (values * ts1.values.log())
-        for _ in range(grad.ndim - ts2.values.ndim):
-            grad = grad.sum(axis=0)
-        for i, dim in enumerate(ts2.shape):
-            if dim == 1:
-                grad = grad.sum(axis=i, keepdims=True)
-        return grad
-    return ts1, ts2, grad_fn1, grad_fn2, values
+def pow(arr1, arr2):
+    res = arr1 ** arr2
+    grad_fn1 = lambda g: g * (arr2 * arr1**(arr2 - 1.0))
+    grad_fn2 = lambda g: g * (res * arr1.log())
+    return res, grad_fn1, grad_fn2
 
 @binary_ops
-def matmul_(ts1, ts2):
-    values = ts1.values @ ts2.values
-    def grad_fn1(grad):
-        return grad @ ts2.values.T
-    def grad_fn2(grad):
-        return ts1.values.T @ grad
-    return ts1, ts2, grad_fn1, grad_fn2, values
+def matmul(arr1, arr2):
+    grad_fn1 = lambda g: g @ arr2.T
+    grad_fn2 = lambda g: arr1.T @ g
+    return arr1 @ arr2, grad_fn1, grad_fn2
 
 @binary_ops
-def gt_(ts1, ts2):
-    values = ts1.values > ts2.values
-    return ts1, ts2, None, None, values
+def gt(arr1, arr2):
+    return arr1 > arr2, None, None
 
 @binary_ops
-def eq_(ts1, ts2):
-    values = ts1.values == ts2.values
-    return ts1, ts2, None, None, values
+def eq(arr1, arr2):
+    return arr1 == arr2, None, None
 
 @binary_ops
-def ge_(ts1, ts2):
-    values = ts1.values >= ts2.values
-    return ts1, ts2, None, None, values
+def ge(arr1, arr2):
+    return arr1 >= arr2, None, None
 
 @unary_ops
-def exp_(ts):
-    values = ts.values.exp()
-    def grad_fn(grad):
-        return values * grad
-    return ts, grad_fn, values
-
-@unary_ops
-def max_(ts, axis, keepdims):
-    values = ts.values.max(axis=axis, keepdims=keepdims)
-    def grad_fn(grad):
-        return grad * (values == ts.values)
-    return ts, grad_fn, values
-
-@unary_ops
-def min_(ts, axis, keepdims):
-    values = ts.values.min(axis=axis, keepdims=keepdims)
-    def grad_fn(grad):
-        return grad * (values == ts.values)
-    return ts, grad_fn, values
-
-@unary_ops
-def log_(ts):
-    values = ts.values.log()
-    def grad_fn(grad):
-        return grad / ts.values
-    return ts, grad_fn, values
-
-@unary_ops
-def sum_(ts, axis, keepdims):
-    values = ts.values.sum(axis=axis, keepdims=keepdims)
-    def grad_fn(grad):
+def sum(arr, axis=None, keepdims=False):
+    res = arr.sum(axis=axis, keepdims=keepdims)
+    def grad_fn(g):
+        shape = arr.shape
         if axis is None:
-            return grad.reshape([1] * ts.ndim).expand(ts.shape)
-        else:
-            if not keepdims:
-                grad = grad.reshape((*ts.shape[:axis],1,*ts.shape[axis+1:]))
-            return grad.expand(ts.shape)
-    return ts, grad_fn, values
+            assert not keepdims, "Invalid keepdims when axis is None"
+            return g.reshape([1] * arr.ndim).expand(shape)
+        if not keepdims:
+            g = g.reshape((*shape[:axis], 1, *shape[axis+1:]))
+        return g.expand(shape)
+    return res, grad_fn
 
 @unary_ops
-def relu_(ts):
-    values = ts.values.relu()
-    def grad_fn(grad):
-        return grad.drelu(ts.values)
-    return ts, grad_fn, values
+def max(arr, axis, keepdims):
+    res = arr.max(axis=axis, keepdims=keepdims)
+    grad_fn = lambda g: g * (res == arr)
+    return res, grad_fn
 
 @unary_ops
-def neg_(ts):
-    values = -ts.values
-    def grad_fn(grad):
-        return -grad
-    return ts, grad_fn, values
+def min(arr, axis, keepdims):
+    res = arr.min(axis=axis, keepdims=keepdims)
+    grad_fn = lambda g: g * (res == arr)
+    return res, grad_fn
 
 @unary_ops
-def reshape_(ts, newshape):
-    oldshape = ts.values.shape
-    values = ts.values.reshape(newshape)
-    def grad_fn(grad):
-        return grad.reshape(oldshape)
-    return ts, grad_fn, values
+def neg(arr):
+    grad_fn = lambda g: -g
+    return -arr, grad_fn
 
 @unary_ops
-def permute_(ts, axes=None):
+def exp(arr):
+    res = arr.exp()
+    grad_fn = lambda g: g * res
+    return res, grad_fn
+
+@unary_ops
+def log(arr):
+    res = arr.log()
+    grad_fn = lambda g: g / arr
+    return res, grad_fn
+
+@unary_ops
+def relu(arr):
+    res = arr.relu()
+    grad_fn = lambda g: g.drelu(arr)
+    return res, grad_fn
+
+@unary_ops
+def reshape(arr, shape):
+    res = arr.reshape(shape)
+    grad_fn = lambda g: g.reshape(arr.shape)
+    return res, grad_fn
+
+@unary_ops
+def permute(arr, axes=None):
     if axes is None:
-        axes = range(ts.values.ndim)[::-1]
+        axes = range(arr.ndim)[::-1]
     axes = list(axes)
-    values = ts.values.permute(axes)
-    def grad_fn(grad):
-        return grad.permute(argsort(axes))
-    return ts, grad_fn, values
+    res = arr.permute(axes)
+    grad_fn = lambda g: g.permute(argsort(axes))
+    return res, grad_fn
 
 @unary_ops
-def getitem_(ts, key):
-    values = ts.values[key]
-    def grad_fn(grad):
-        ret = grad.__class__.zeros(ts.shape)
-        ret[key] = grad
+def getitem(arr, key):
+    res = arr[key]
+    def grad_fn(g):  # TODO
+        ret = g.__class__.zeros(arr.shape)
+        ret[key] = g
         return ret
-    return ts, grad_fn, values
+    return res, grad_fn
 
 # TODO: implement ops below
 def pad_(ts, pad_width, mode):
@@ -241,5 +187,4 @@ def flatten_(ts):
     def grad_fn(grad):
         return grad.reshape(shape)
     return build_unary_ops_tensor(ts, grad_fn, values)
-
 

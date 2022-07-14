@@ -73,77 +73,76 @@ class Tensor:
                 f"requires_grad={self.requires_grad}, "
                 f"gpu={self._gpu}, array={self.array.__class__.__name__})")
 
-    # TODO: programmatically register
     def __gt__(self, other):
-        return ops.gt_(self, as_tensor(other))
+        return ops.gt(self, as_tensor(other))
 
     def __eq__(self, other):
-        return ops.eq_(self, as_tensor(other))
+        return ops.eq(self, as_tensor(other))
 
     def __ge__(self, other):
-        return ops.ge_(self, as_tensor(other))
+        return ops.ge(self, as_tensor(other))
 
     def __add__(self, other):
-        return ops.add_(self, as_tensor(other))
+        return ops.add(self, as_tensor(other))
 
     def __radd__(self, other):
-        return ops.add_(as_tensor(other), self)
+        return ops.add(as_tensor(other), self)
 
     def __iadd__(self, other):
         self.values += as_tensor(other).values
         return self
 
     def __sub__(self, other):
-        return ops.sub_(self, as_tensor(other))
+        return ops.sub(self, as_tensor(other))
 
     def __rsub__(self, other):
-        return ops.sub_(as_tensor(other), self)
+        return ops.sub(as_tensor(other), self)
 
     def __isub__(self, other):
         self.array = self.array - as_tensor(other).values
         return self
 
     def __mul__(self, other):
-        return ops.mul_(self, as_tensor(other))
+        return ops.mul(self, as_tensor(other))
 
     def __rmul__(self, other):
-        return ops.mul_(as_tensor(other), self)
+        return ops.mul(as_tensor(other), self)
 
     def __imul__(self, other):
         self.values *= as_tensor(other).values
         return self
 
     def __truediv__(self, other):
-        return ops.div_(self, as_tensor(other))
+        return ops.div(self, as_tensor(other))
 
     def __rtruediv__(self, other):
-        return ops.div_(as_tensor(other), self)
+        return ops.div(as_tensor(other), self)
 
     def __itruediv__(self, other):
         self.values = self.values / as_tensor(other).values
         return self
 
     def __neg__(self):
-        return ops.neg_(self)
+        return ops.neg(self)
 
     def __getitem__(self, key):
-        return ops.getitem_(self, key)
+        return ops.getitem(self, key)
 
     def __pow__(self, other):
-        return ops.pow_(self, as_tensor(other))
+        return ops.pow(self, as_tensor(other))
 
     def __rpow__(self, other):
-        return ops.pow_(as_tensor(other), self)
+        return ops.pow(as_tensor(other), self)
 
     def __ipow__(self, other):
         self.values = self.values ** as_tensor(other).values
         return self
 
     def __matmul__(self, other):
-        return ops.matmul_(self, as_tensor(other))
+        return ops.matmul(self, as_tensor(other))
 
     def __rmatmul__(self, other):
-        return ops.matmul_(as_tensor(other), self)
+        return ops.matmul(as_tensor(other), self)
 
     def __imatmul__(self, other):
         self.values = self.values @ as_tensor(other).values
@@ -154,31 +153,31 @@ class Tensor:
         return self.shape[0]
 
     def sum(self, axis=None, keepdims=False):
-        return ops.sum_(self, axis=axis, keepdims=keepdims)
+        return ops.sum(self, axis=axis, keepdims=keepdims)
 
     def max(self, axis=None, keepdims=False):
-        return ops.max_(self, axis=axis, keepdims=keepdims)
+        return ops.max(self, axis=axis, keepdims=keepdims)
 
-    def min(self, axis=None):
-        return ops.min_(self, axis=axis)
+    def min(self, axis=None, keepfims=False):
+        return ops.min(self, axis=axis, keepdims=keepdims)
 
     def permute(self, axes=None):
-        return ops.permute_(self, axes=axes)
+        return ops.permute(self, axes=axes)
 
     def log(self):
-        return ops.log_(self)
+        return ops.log(self)
 
     def reshape(self, newshape):
-        return ops.reshape_(self, newshape)
+        return ops.reshape(self, newshape)
 
     def flatten(self):
-        return ops.flatten_(self)
+        return ops.flatten(self)
 
     def relu(self):
-        return ops.relu_(self)
+        return ops.relu(self)
 
     def exp(self):
-        return ops.exp_(self)
+        return ops.exp(self)
 
     @property
     def ndim(self):
@@ -186,13 +185,13 @@ class Tensor:
 
     @property
     def T(self):
-        return ops.permute_(self, axes=None)
+        return ops.permute(self, axes=None)
 
     def backward(self, grad=None):
         assert self.requires_grad, "Call backward() on a non-requires-grad tensor."
         self.outdegree -= 1
         if grad is None:
-            grad = GPUArray(1.0) if self._gpu else CPUArray(1.0)
+            grad = GPUArray([1.0]) if self._gpu else CPUArray([1.0])
             self.outdegree = 0
         if self._gpu and not isinstance(grad, GPUArray):
             grad = GPUArray(grad, dtype=self.dtype)

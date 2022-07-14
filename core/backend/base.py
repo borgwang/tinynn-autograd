@@ -97,7 +97,7 @@ class Array:
     def __getitem__(self, key): raise NotImplementedError
     def __setitem__(self, key, value): raise NotImplementedError
 
-    # #### Contruct Ops #####
+    # #### Creation Ops #####
     @classmethod
     def uniform(cls, a, b, shape, dtype=float32): raise NotImplementedError
     @classmethod

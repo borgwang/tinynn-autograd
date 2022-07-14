@@ -18,13 +18,12 @@ class CLContext:
             devices = platform.get_devices(device_type=pyopencl.device_type.CPU)
         self.ctx = pyopencl.Context(devices)
         self.queue = pyopencl.CommandQueue(self.ctx)
-        # random number generator
         import pyopencl.clrandom as clrandom
         self.rng = clrandom.PhiloxGenerator(self.ctx)
 
     @lru_cache(maxsize=None)
     def build(self, name, program):
-        if DEBUG>1: print(f"[DEBUG] program {name}: \n {program}")
+        if DEBUG > 1: print(f"[DEBUG] program {name}: \n {program}")
         kernel = pyopencl.Program(self.ctx, program).build().__getattr__(name)
         return lambda *args: kernel(self.queue, *args)
 
@@ -108,7 +107,7 @@ def matmul_op(a, b):
     while gs <= 8 and M % gs == 0 and N % gs == 0 and K % gs == 0 and gs <= K and gs <= M and gs <= N:
         gs *= 2
     gs //= 2
-    if DEBUG>1: print(f"[DEBUG] BS:{BS} M:{M} K:{K} N:{N} grp_size:{gs}")
+    if DEBUG > 1: print(f"[DEBUG] BS:{BS} M:{M} K:{K} N:{N} grp_size:{gs}")
     src = f"""#define GS {gs}
     __kernel void matmul_op(int BS, int M, int N, int K,
         {''.join(f'int A_s{i}, int B_s{i}, ' for i in range(3))} int a_ofst, int b_ofst,
@@ -213,9 +212,9 @@ def reduce_op(name, x, axis=None, keepdims=True):
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
     e = op(global_size, local_size, int32(size), int32(x.offset), x.buffer, local_mem, ret.buffer)
     if GRAPH: e.wait()
-    if DEBUG>1: print(f"[DEBUG] x_shp: {x_shp} ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
+    if DEBUG > 1: print(f"[DEBUG] x_shp: {x_shp} ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
     if n_grps > 1:
-        ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)  # recursive reduce (inefficient)
+        ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)
     return ret
 
 
@@ -357,7 +356,7 @@ class ClArray(Array):
         inst.__update_contiguousness()
         return inst
 
-    # ##### Construct Ops #####
+    # ##### Creation Ops #####
     @classmethod
     def empty(cls, shape, dtype=float32):
         return cls(shape=shape, dtype=dtype)
