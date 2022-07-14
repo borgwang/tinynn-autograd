@@ -99,19 +99,19 @@ def main(args):
     iterator = BatchIterator(batch_size=args.batch_size)
     evaluator = AccEvaluator()
     for epoch in range(args.num_ep):
-        t_start = time.time()
+        t_start = time.monotonic()
         for batch in iterator(train_x, train_y):
             net.zero_grad()
             x, y = batch.inputs.to(args.device), batch.targets.to(args.device)
             pred = net.forward(x)
             loss = loss_fn(pred, y)
-            if GRAPH: ts = time.time()
+            if GRAPH: ts = time.monotonic()
             loss.backward()
-            if GRAPH: print("loss.backward() cost: ", time.time() - ts)
+            if GRAPH: print("loss.backward() cost: ", time.monotonic() - ts)
             if GRAPH: plot_graph(loss)
             optim.step()
             if args.onepass: sys.exit()
-        print("Epoch %d tim cost: %.4f" % (epoch, time.time() - t_start))
+        print("Epoch %d tim cost: %.4f" % (epoch, time.monotonic() - t_start))
         if args.eval:
             test_pred = net.forward(test_x).numpy()
             test_pred_idx = np.argmax(test_pred, axis=1)

@@ -2,9 +2,9 @@ import time
 
 def timer(func):
     def wrapper(*args, **kwargs):
-        ts = time.time()
+        ts = time.monotonic()
         ret = func(*args, **kwargs)
-        cost = time.time() - ts
+        cost = time.monotonic() - ts
         return ret, cost
     return wrapper
 
