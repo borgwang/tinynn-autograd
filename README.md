@@ -27,40 +27,15 @@ python3 examples/mnist/run.py
 ### TODOs
 
 - llops
-  - reduce ops
-    - [x] reduce along axis
-    - [x] reduce support 4D array
-    - [x] reduction when size is not power of 2
-  - process ops
-    - conv op
-  - movement ops
-    - [x] reshape op
-    - [x] expand op
-    - [x] contiguous op
-    - [x] slice op
-  - binary ops
-  - unary ops
-- mlops
-  - conv/transpose_conv
-  - refactor layers/loss/optimizer
-- misc
-  - [x] create gpu tensor directly
-  - [x] initializer
-  - [x] unify gpu_ops and ops
-- abbstraction
-  - [x] buffer instead of array
-  - wrap numpy array to CPUArray
+  - [] conv/tconv op
+  - [] slice op
 - unit testing
 - speedup
-  - graph optimization
-    - [x] avoid repeated backward (2x faster)
-    - [x] avoid uneccessary buffer creatation (20% faster)
-    - [x] don't wait (2x faster)
-    - [x] avoid uneccessary gradient add (30% faster)
-    - combine nodes
-  - gpuops optimization
-    - [x] drelu
-  - cache cl buffer, then we don't have to recreate each time
+  - ops optimization
+  - jit
+- backend
+  - support cuda backend
+- readability
 
 ### License
 

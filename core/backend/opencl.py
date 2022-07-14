@@ -5,9 +5,9 @@ import numpy as np
 import pyopencl
 
 from env import DEBUG, GRAPH
-from utils.math import prod
-from utils.dtype import int32, float32
 from core.backend.base import Array
+from core.dtype import int32, float32
+from utils.math import prod
 
 class CLContext:
     def __init__(self):
@@ -43,28 +43,6 @@ class CLContext:
 
 cl = CLContext()
 
-class KernelCounter:
-    cnt = defaultdict(int)
-
-def broadcast(a, b):
-    # rule: https://numpy.org/doc/stable/user/basics.broadcasting.html
-    if a.shape == b.shape:
-        return a, b
-    for i, j in zip(a.shape[::-1], b.shape[::-1]):
-        if i != j and (i != 1) and (j != 1):
-            raise ValueError(f"Error broadcasting for {a.shape} and {b.shape}")
-    ndim = max(a.ndim, b.ndim)
-    if a.ndim != ndim:
-        a = a.reshape([1] * (ndim - a.ndim) + list(a.shape))
-    if b.ndim != ndim:
-        b = b.reshape([1] * (ndim - b.ndim) + list(b.shape))
-    broadcast_shape = [max(i, j) for i, j in zip(a.shape, b.shape)]
-    if a.shape != broadcast_shape:
-        a = a.expand(broadcast_shape)
-    if b.shape != broadcast_shape:
-        b = b.expand(broadcast_shape)
-    return a, b
-
 def unary_op(name, a, ret=None, **kwargs):
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)  # TODO
@@ -81,18 +59,17 @@ def unary_op(name, a, ret=None, **kwargs):
     args = [int32(s) for ss in zip(a.strides, ret.strides) for s in ss] + [int32(a.offset)]
     e = op((prod(a.shape),), None, *args, a.buffer, ret.buffer)
     if GRAPH: e.wait()
-    KernelCounter.cnt["unary"] += 1
     return ret
 
 def binary_op(name, a, b, ret=None):
-    a, b = broadcast(a, b)
+    a, b = Array.broadcast(a, b)
     if ret is None:
         ret = a.__class__(shape=a.shape, dtype=a.dtype)
     assert ret.c_contiguous, f"ret must be contiguous. {ret}"
     ret_strides = (1,) if not ret.strides else ret.strides
     code_map = {"add": "a+b", "sub": "a-b", "div": "a/b", "mul": "a*b", "pow": "pow(a,b)",
                 "eq": "(float)isequal(a,b)", "gt": "(float)isgreater(a,b)", "ge": "(float)isgreaterequal(a,b)",
-                "lt": "(float)isless(a,b)", "le": "(float)islessequal(a,b)", "drelu": "b>0?a:0.0f"}
+                "drelu": "b>0?a:0.0f"}
     op = cl.build("binary_op", f"""__kernel void binary_op(
         {''.join([f'int a_s{i}, int b_s{i}, int res_s{i}, ' for i in range(a.ndim)])}
         int a_ofst, int b_ofst, __global const float *A, __global const float *B, __global float *C) {{
@@ -105,7 +82,6 @@ def binary_op(name, a, b, ret=None):
     args += [int32(s) for s in [a.offset, b.offset]]
     e = op((prod(a.shape),), None, *args, a.buffer, b.buffer, ret.buffer)
     if GRAPH: e.wait()
-    KernelCounter.cnt["binary"] += 1
     return ret
 
 def matmul_op(a, b):
@@ -154,7 +130,6 @@ def matmul_op(a, b):
     args = [int32(x) for x in [BS, M, N, K] + strides + [a.offset, b.offset]]
     e = op((BS, M, N), (1, gs, gs), *args, a.buffer, b.buffer, ret.buffer)
     if GRAPH: e.wait()
-    KernelCounter.cnt["matmul"] += 1
     for axis in squeezes:
         ret = ret.squeeze(axis)
     return ret
@@ -179,7 +154,6 @@ def contiguous_op(x):
     args = [int32(s) for ss in zip(x_shape, x_strides) for s in ss]
     e = op((prod(x_shape),), None, *args, int32(x.offset), x.buffer, ret.buffer)
     if GRAPH: e.wait()
-    KernelCounter.cnt["contig"] += 1
     return ret
 
 def reduce_op(name, x, axis=None, keepdims=True):
@@ -239,7 +213,6 @@ def reduce_op(name, x, axis=None, keepdims=True):
     local_size = tuple(grp_size if i == axis else 1 for i in range(ndim))
     e = op(global_size, local_size, int32(size), int32(x.offset), x.buffer, local_mem, ret.buffer)
     if GRAPH: e.wait()
-    KernelCounter.cnt["reduce"] += 1
     if DEBUG>1: print(f"[DEBUG] x_shp: {x_shp} ret_shape: {ret_shape} grp_size: {grp_size} n_grps: {n_grps} size: {size} global_size: {global_size} local_size: {local_size} axis={axis} ndim={ndim} offset={offset}")
     if n_grps > 1:
         ret = reduce_op(name, ret, axis=axis, keepdims=keepdims)  # recursive reduce (inefficient)
@@ -247,7 +220,7 @@ def reduce_op(name, x, axis=None, keepdims=True):
 
 
 class ClArray(Array):
-    # https://numpy.org/doc/stable/dev/internals.html#numpy-internals
+    """Pyopencl's multidimension array class only implement limited functionality. So we write our own."""
     def __init__(self, data=None, shape=None, dtype=float32):
         super().__init__(shape, dtype)
         if isinstance(data, pyopencl.Buffer):
@@ -260,7 +233,7 @@ class ClArray(Array):
             else:
                 assert self.shape is not None, "cannot infer shape when without data"
             self.buffer = cl.alloc_buffer(self.shape, self.dtype, data)
-        # meta infos
+        # meta infos (https://numpy.org/doc/stable/dev/internals.html#numpy-internals)
         self.strides = tuple(prod(self.shape[i+1:]) for i in range(len(self.shape)))
         self.offset = 0  # offset relative to the beginning of the buffer
         self.c_contiguous, self.f_contiguous = True, False
@@ -273,9 +246,6 @@ class ClArray(Array):
     @property
     def ndim(self):
         return len(self.shape)
-
-    def __repr__(self):
-        return (f"<ClArray dtype={self.dtype} shape={self.shape} strides={self.strides} size={self.size} contiguous={self.c_contiguous}>")
 
     # ##### Unary Ops #####
     def neg(self): return unary_op("neg", self)
@@ -293,8 +263,6 @@ class ClArray(Array):
     def eq(self, other): return binary_op("eq", self, other)
     def ge(self, other): return binary_op("ge", self, other)
     def gt(self, other): return binary_op("gt", self, other)
-    def le(self, other): return binary_op("le", self, other)
-    def lt(self, other): return binary_op("lt", self, other)
     def drelu(self, other): return binary_op("drelu", self, other)  # TODO
 
     # ##### Reduce Ops #####
@@ -395,16 +363,10 @@ class ClArray(Array):
         return cls(shape=shape, dtype=dtype)
 
     @classmethod
-    def zeros(cls, shape, dtype=float32):
-        return cls(shape=shape, dtype=dtype).fill(0)
-
-    @classmethod
-    def ones(cls, shape, dtype=float32):
-        return cls(shape=shape, dtype=dtype).fill(1)
-
-    @classmethod
     def full(cls, shape, value, dtype=float32):
-        return cls(shape=shape, dtype=dtype).fill(value)
+        inst = cls(shape=shape, dtype=dtype)
+        cl.enqueue("fill_buffer", inst.buffer, inst.dtype(value), 0, inst.size)
+        return inst
 
     @classmethod
     def uniform(cls, a, b, shape, dtype=float32):
@@ -423,10 +385,6 @@ class ClArray(Array):
 
     def contiguous(self):
         return contiguous_op(self)
-
-    def fill(self, value):
-        cl.enqueue("fill_buffer", self.buffer, self.dtype(value), 0, self.size)
-        return self
 
     def __update_contiguousness(self):
         strides = [self.strides[i] for i in range(self.ndim) if self.shape[i] != 1]

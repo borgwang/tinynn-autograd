@@ -1,7 +1,7 @@
+import argparse
 import time
 
 import numpy as np
-
 from core.tensor import Tensor
 
 np.random.seed(0)
@@ -19,10 +19,10 @@ n_ep = 10
 
 def run_gpu():
     print("---- GPU -----")
-    x = Tensor(data_x).gpu()
-    y = Tensor(data_y).gpu()
-    w = Tensor(data_w, requires_grad=True, name="w").gpu()
-    b = Tensor(data_b, requires_grad=True, name="b").gpu()
+    x = Tensor(data_x).to(device)
+    y = Tensor(data_y).to(device)
+    w = Tensor(data_w, requires_grad=True, name="w").to(device)
+    b = Tensor(data_b, requires_grad=True, name="b").to(device)
 
     t0 = time.time()
     for epoch in range(n_ep):
@@ -59,6 +59,11 @@ def run_cpu():
     print(f"err check: {err.sum():.8f}")
     print(f"loss check: {loss:.8f}")
 
-run_gpu()
-run_cpu()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device", default="gpu", type=str)
+    args = parser.parse_args()
+    device = args.device
+    run_gpu()
+    run_cpu()
 

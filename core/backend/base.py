@@ -1,10 +1,13 @@
-from utils.dtype import float32
+from core.dtype import float32
 
 class Array:
     def __init__(self, shape=None, dtype=float32):
         self.shape, self.dtype = shape, dtype
         self.register_ops()
 
+    def __repr__(self):
+        return (f"<{self.__class__.__name__} dtype={self.dtype} shape={self.shape} "
+                f"strides={self.strides} size={self.size}>")
     @property
     def size(self):
         raise NotImplementedError
@@ -19,24 +22,11 @@ class Array:
             obj = cls(obj.numpy()) if issubclass(obj.__class__, Array) else cls(obj)
         return obj
 
-    @classmethod
-    def register_ops(cls):
-        for op in ("add", "sub", "mul", "div", "pow"):
-            opname = "truediv" if op is "div" else op
-            setattr(cls, f"__{opname}__", \
-                (lambda op: lambda a, b: getattr(a, op)(cls.asarray(b)))(op))
-            setattr(cls, f"__i{opname}__", \
-                (lambda op: lambda a, b: getattr(a, op)(cls.asarray(b), out=a))(op))
-            setattr(cls, f"__r{opname}__", \
-                (lambda op: lambda a, b: getattr(cls.asarray(b), op)(a))(op))
-        for op in ("eq", "ge", "gt", "le", "lt"):
-            setattr(cls, f"__{op}__", \
-                (lambda op: lambda a, b: getattr(a, op)(cls.asarray(b)))(op))
-        setattr(cls, f"__matmul__", lambda a, b: a.matmul(cls.asarray(b)))
-        setattr(cls, f"__neg__", lambda a: a.neg())
+    def numpy(self):
+        raise NotImplementedError
 
-    @classmethod
-    def broadcast(cls, a, b):
+    @staticmethod
+    def broadcast(a, b):
         # rule: https://numpy.org/doc/stable/user/basics.broadcasting.html
         if a.shape == b.shape:
             return a, b
@@ -55,6 +45,22 @@ class Array:
             b = b.expand(broadcast_shape)
         return a, b
 
+    @classmethod
+    def register_ops(cls):
+        for op in ("add", "sub", "mul", "div", "pow"):
+            opname = "truediv" if op is "div" else op
+            setattr(cls, f"__{opname}__", \
+                (lambda op: lambda a, b: getattr(a, op)(cls.asarray(b)))(op))
+            setattr(cls, f"__i{opname}__", \
+                (lambda op: lambda a, b: getattr(a, op)(cls.asarray(b), out=a))(op))
+            setattr(cls, f"__r{opname}__", \
+                (lambda op: lambda a, b: getattr(cls.asarray(b), op)(a))(op))
+        for op in ("eq", "ge", "gt"):
+            setattr(cls, f"__{op}__", \
+                (lambda op: lambda a, b: getattr(a, op)(cls.asarray(b)))(op))
+        setattr(cls, f"__matmul__", lambda a, b: a.matmul(cls.asarray(b)))
+        setattr(cls, f"__neg__", lambda a: a.neg())
+
     # ##### Unary Ops #####
     def neg(self): raise NotImplementedError
     def exp(self): raise NotImplementedError
@@ -70,8 +76,6 @@ class Array:
     def eq(self, other, out=None): raise NotImplementedError
     def gt(self, other): raise NotImplementedError
     def ge(self, other): raise NotImplementedError
-    def lt(self, other): raise NotImplementedError
-    def le(self, other): raise NotImplementedError
     def matmul(self, other): raise NotImplementedError
     def drelu(self, other): raise NotImplementedError
 
@@ -95,15 +99,15 @@ class Array:
 
     # #### Contruct Ops #####
     @classmethod
-    def empty(cls, shape, dtype=float32): raise NotImplementedError
-    @classmethod
-    def zeros(cls, shape, dtype=float32): raise NotImplementedError
-    @classmethod
-    def ones(cls, shape, dtype=float32): raise NotImplementedError
-    @classmethod
-    def full(cls, shape, dtype=float32): raise NotImplementedError
-    @classmethod
     def uniform(cls, a, b, shape, dtype=float32): raise NotImplementedError
     @classmethod
     def normal(cls, loc, scale, shape, dtype=float32): raise NotImplementedError
+    @classmethod
+    def empty(cls, shape, dtype=float32): raise NotImplementedError
+    @classmethod
+    def full(cls, shape, value, dtype=float32): raise NotImplementedError
+    @classmethod
+    def zeros(cls, shape, dtype=float32): return cls.full(shape, 0, dtype)
+    @classmethod
+    def ones(cls, shape, dtype=float32): return cls.full(shape, 1, dtype)
 

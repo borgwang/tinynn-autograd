@@ -1,7 +1,7 @@
 import numpy as np
 
-from core.initializer import XavierUniformInit
-from core.initializer import ZerosInit
+from core.nn.initializer import XavierUniformInit
+from core.nn.initializer import ZerosInit
 
 class Layer:
     def __init__(self):
@@ -15,7 +15,6 @@ class Layer:
     def to(self, device):
         self.device = device
         return self
-
 
 class Dense(Layer):
     def __init__(self,
@@ -39,8 +38,8 @@ class Dense(Layer):
 
     def _init_parameters(self, input_size):
         self.shapes["w"][0] = input_size
-        self.params["w"] = self.initializers["w"](shape=self.shapes["w"], device=self.device, name=self.name + "_w")
-        self.params["b"] = self.initializers["b"](shape=self.shapes["b"], device=self.device, name=self.name + "_b")
+        self.params["w"] = self.initializers["w"](shape=self.shapes["w"], device=self.device, name=self.name+"_w")
+        self.params["b"] = self.initializers["b"](shape=self.shapes["b"], device=self.device, name=self.name+"_b")
         self.is_init = True
 
 class Activation(Layer):
@@ -48,6 +47,6 @@ class Activation(Layer):
         raise NotImplementedError
 
 class ReLU(Activation):
-
     def forward(self, x):
         return x.relu()
+

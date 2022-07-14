@@ -1,7 +1,7 @@
 import numpy as np
-import core.ops as ops
+import core.autograd.ops as ops
 from env import GRAPH, BACKEND
-from utils.dtype import float32
+from core.dtype import float32
 
 from core.backend.numpy import NpArray as CPUArray
 GPUArray = type(None)
@@ -18,10 +18,7 @@ def as_tensor(obj):
 class Tensor:
     def __init__(self, values, requires_grad=False, dependency=(), dtype=float32, name=None):
         self._gpu = isinstance(values, GPUArray)
-        if isinstance(values, (CPUArray, GPUArray)):
-            self.array = values
-        else:
-            self.array = CPUArray(values, dtype=dtype)
+        self.array = values if isinstance(values, (CPUArray, GPUArray)) else CPUArray(values, dtype=dtype)
         self.dtype = dtype
 
         self.grad = None
@@ -65,7 +62,7 @@ class Tensor:
     @values.setter
     def values(self, new_values):
         self.array = new_values
-        #self.grad = None
+        self.grad = None
 
     @property
     def shape(self):
@@ -74,7 +71,7 @@ class Tensor:
     def __repr__(self):
         return (f"Tensor(name={self.name}, shape={self.shape}, "
                 f"requires_grad={self.requires_grad}, "
-                f"gpu={self._gpu})")
+                f"gpu={self._gpu}, array={self.array.__class__.__name__})")
 
     # TODO: programmatically register
     def __gt__(self, other):
@@ -203,10 +200,7 @@ class Tensor:
             grad = CPUArray(grad, dtype=self.dtype)
 
         if self.requires_grad:
-            if self.grad is None:
-                self.grad = grad
-            else:
-                self.grad = self.grad + grad
+            self.grad = grad if self.grad is None else self.grad + grad
 
         if self.outdegree <= 0:
             for dep in self.dependency:
